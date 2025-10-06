@@ -5,6 +5,7 @@ from tqdm import tqdm
 import random
 import numpy as np
 from loguru import logger
+import argparse
 
 # 设置随机种子
 def set_seed(seed):
@@ -13,6 +14,12 @@ def set_seed(seed):
     random.seed(seed)
 # 数据预处理
 def data_preprocessing(origin_data_dir:str,save_dir:str):
+    r"""
+    Parameters
+    ----------
+    origin_data_dir: data origin path
+    save_dir: save data path
+    """
     # 创建存放数据的目录
     os.path.exists(save_dir) or os.makedirs(save_dir)
     logger.info(f"The {save_dir} directory has been created!")
@@ -71,11 +78,21 @@ def data_preprocessing(origin_data_dir:str,save_dir:str):
                     except Exception as error:
                         logger.error(f"Find error, please check {nframe}, {image_path}!")
                         raise Exception(f"请检查总帧：{nframe},图片路径：{image_path}")
+# 设置指令
+def main():
+    parser=argparse.ArgumentParser(description="Data preprocessing")
+    # 数据原始位置
+    parser.add_argument("--origin","-o",type=str,help="data origin path",default="/usr/Sign-Language-Recognition/CE-CSL/video",dest="origin_data_path")
+    # 存放预处理后数据的位置
+    parser.add_argument("--save","-s",type=str,help="data save path",default="/usr/Sign-Language-Recognition/data/video",dest="save_path")
+    # 获取所有的参数
+    args=parser.parse_args()
+    # 构建逻辑
+    data_preprocessing(args.origin_data_path, args.save_path)
 
 if __name__=="__main__":
-    # 数据原始位置
-    origin_data_path="/usr/Sign-Language-Recognition/CE-CSL/video"
-    # 存放预处理后数据的位置
-    save_path="/usr/Sign-Language-Recognition/data/video"
+    # origin_data_path="/usr/Sign-Language-Recognition/CE-CSL/video"
+    # save_path="/usr/Sign-Language-Recognition/data/video"
     # 执行预处理数据的操作
-    data_preprocessing(origin_data_path,save_path)
+    # data_preprocessing(origin_data_path,save_path)
+    main()
