@@ -90,6 +90,9 @@ def data_preprocessing(origin_data_dir:str,save_dir:str):
     logger.info(f"Video data processed successfully!")
 # 设置指令
 def main():
+    r"""
+    构建指令
+    """
     parser=argparse.ArgumentParser(description="Data preprocessing")
     # 数据原始位置
     parser.add_argument("--origin","-o",type=str,help="data origin path",default="/usr/Sign-Language-Recognition/CE-CSL/video",dest="origin_data_path")
