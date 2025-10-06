@@ -78,6 +78,16 @@ def data_preprocessing(origin_data_dir:str,save_dir:str):
                     except Exception as error:
                         logger.error(f"Find error, please check {nframe}, {image_path}!")
                         raise Exception(f"请检查总帧：{nframe},图片路径：{image_path}")
+                # 关闭vid
+                vid.close()
+    # 数据分析
+    max_nframe=max(frame_list) # 最长总帧
+    min_nframe=min(frame_list) # 最短总帧
+    max_video_time=max(video_time_list) # 最时长
+    min_video_time=min(video_time_list) # 最短时长
+    # 日志输入（可忽略）
+    logger.info(f"max nframe is {max_nframe}, min nframe is {min_nframe}, max video time is {max_video_time}, min video time is {min_video_time}.")
+    logger.info(f"Video data processed successfully!")
 # 设置指令
 def main():
     parser=argparse.ArgumentParser(description="Data preprocessing")
