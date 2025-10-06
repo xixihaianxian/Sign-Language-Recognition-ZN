@@ -17,7 +17,7 @@ def remove_illegal_char(word:str)->str:
             if stack and stack[-1]==config.CLOSE_CHAR_MAP.get(char):
                 stack.pop() # 匹配，删除stack里面最后一个符号
             else:
-                result_chars.append(char) # 不匹配，防止是有效符号，将符号加入到result_chars
+                pass
         # 将合法的符号加入result_chars
         else:
             if not stack:
@@ -26,4 +26,4 @@ def remove_illegal_char(word:str)->str:
     return "".join(result_chars)
 
 if __name__=="__main__":
-    print(remove_illegal_char("a(b(c)d)e"))
+    print(remove_illegal_char("a(b)c)"))
