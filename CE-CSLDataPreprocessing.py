@@ -95,9 +95,9 @@ def main():
     """
     parser=argparse.ArgumentParser(description="Data preprocessing")
     # 数据原始位置
-    parser.add_argument("--origin","-o",type=str,help="data origin path",default="/usr/Sign-Language-Recognition/CE-CSL/video",dest="origin_data_path")
+    parser.add_argument("--origin","-o",type=str,help="data origin path",default="/mnt/e/Sign-Language-Recognition-ZN/CE-CSL/video",dest="origin_data_path")
     # 存放预处理后数据的位置
-    parser.add_argument("--save","-s",type=str,help="data save path",default="/usr/Sign-Language-Recognition/data/video",dest="save_path")
+    parser.add_argument("--save","-s",type=str,help="data save path",default="/mnt/e/Sign-Language-Recognition-ZN/data/video",dest="save_path")
     # 获取所有的参数
     args=parser.parse_args()
     # 构建逻辑

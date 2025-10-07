@@ -24,6 +24,26 @@ def remove_illegal_char(word:str)->str:
                 result_chars.append(char)
     # 返回结果
     return "".join(result_chars)
+# 预处理words
+def handle_words(words:List[str]):
+    # 遍历每一个word
+    for i in range(len(words)):
+        word=words[i]
+        # 删除word不必要的部分
+        word=remove_illegal_char(word)
+        # 删除不必要的数字
+        if word[-1].isdigit():
+            if not word[0].isdigit():
+                word=word[:-1]
+        # 统一符号
+        if word[0]=="," or word[0]=="，":
+            word="，"+word[1:]
+        if word[0]=="?" or word[0]=="？":
+            word="？"+word[1:]
+        # 去掉数字前导零
+        if word.isdigit():
+            word=str(int(word))
+        words[i]=word
 
 if __name__=="__main__":
     print(remove_illegal_char("a(b)c)"))
