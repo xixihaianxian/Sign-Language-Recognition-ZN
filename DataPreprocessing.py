@@ -1,5 +1,6 @@
 from typing import List
 import config
+import pandas as pd
 
 # 删除非法字符
 def remove_illegal_char(word:str)->str:
@@ -36,14 +37,45 @@ def handle_words(words:List[str]):
             if not word[0].isdigit():
                 word=word[:-1]
         # 统一符号
-        if word[0]=="," or word[0]=="，":
+        if word[0]=="," or word[0]=="，": #TODO 如何使用分词的话这里需要进行相应的修改
             word="，"+word[1:]
         if word[0]=="?" or word[0]=="？":
             word="？"+word[1:]
+        # if word=="," or word=="，":
+        #     word="，"
+        # if word=="?" or word=="？":
+        #     word="？"
         # 去掉数字前导零
         if word.isdigit():
             word=str(int(word))
         words[i]=word
+# 建word到id的映射
+def word2id(train_label_path:str,valid_label_path:str,test_label_path:str,data_set_name:str):
+    # RWTH数据处理方式，可以用来微调中文模型
+    if data_set_name=="RWTH":
+        word_list=list()
+        # 处理train label
+        train_df=pd.read_csv(train_label_path,sep="|")
+        train_annotations=train_df.loc[:,"annotation"]
+        # 遍历每一句
+        for annotation in train_annotations:
+            words=annotation.split()
+            word_list.extend(words)
+        # 处理test label
+        test_df=pd.read_csv(test_label_path,sep="|")
+        test_annotations=test_df.loc[:,"annotation"]
+        for annotation in test_annotations:
+            words=annotation.split()
+            word_list.extend(words)
+        # 处理valid label
+        valid_df=pd.read_csv(valid_label_path,sep="|")
+        valid_annotations=valid_df.loc[:,"annotation"]
+        for annotation in valid_annotations:
+            words=annotation.split()
+            word_list.extend(words)
+    elif data_set_name=="CE-CSL":
+        word_list=list()
+        pass
 
 if __name__=="__main__":
     print(remove_illegal_char("a(b)c)"))
