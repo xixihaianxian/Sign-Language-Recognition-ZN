@@ -3,7 +3,15 @@ from typing import List
 import config
 import pandas as pd
 import csv
+from loguru import logger
 
+# 判断文件状态
+def check_param_status(**kwargs):
+    for key,value in kwargs.items():
+        if value is None:
+            logger.warning(f"{key}not set!")
+            return True
+    return False
 # 删除非法字符
 def remove_illegal_char(word:str)->str:
     # 定义栈，存放非法字符
@@ -56,7 +64,14 @@ def handle_words(words:List[str])->List[str]:
         words[i]=word
     return words
 # 建word到id的映射
-def word2id(train_label_path:str,valid_label_path:str,test_label_path:str,data_set_name:str):
+def word2id(train_label_path:str=None,valid_label_path:str=None,test_label_path:str=None,data_set_name:str="CSL-Daily"):
+    r"""
+    train_label_path: 训练标签文件地址
+    valid_label_path: 验证标签文件地址
+    test_label_path: 测试标签文件地址
+    data_set_name: 数据集名称（默认为CSL-Daily）
+    """
+    PAD="<pad>"
     # 定义word list
     word_list = list()
     # label路径列表
@@ -64,66 +79,85 @@ def word2id(train_label_path:str,valid_label_path:str,test_label_path:str,data_s
     # RWTH数据处理方式，可以用来微调中文模型
     if data_set_name=="RWTH":
         # 处理train label
-        train_df=pd.read_csv(train_label_path,sep="|")
-        train_annotations=train_df.loc[:,"annotation"]
-        # 遍历每一句
-        for annotation in train_annotations:
-            words=annotation.split()
-            word_list.extend(words)
+        if not check_param_status(train_label_path=train_label_path):
+            train_df=pd.read_csv(train_label_path,sep="|")
+            train_annotations=train_df.loc[:,"annotation"]
+            # 遍历每一句
+            for annotation in train_annotations:
+                words=annotation.split()
+                word_list.extend(words)
         # 处理test label
-        test_df=pd.read_csv(test_label_path,sep="|")
-        test_annotations=test_df.loc[:,"annotation"]
-        for annotation in test_annotations:
-            words=annotation.split()
-            word_list.extend(words)
+        if not check_param_status(test_label_path=test_label_path):
+            test_df=pd.read_csv(test_label_path,sep="|")
+            test_annotations=test_df.loc[:,"annotation"]
+            for annotation in test_annotations:
+                words=annotation.split()
+                word_list.extend(words)
         # 处理valid label
-        valid_df=pd.read_csv(valid_label_path,sep="|")
-        valid_annotations=valid_df.loc[:,"annotation"]
-        for annotation in valid_annotations:
-            words=annotation.split()
-            word_list.extend(words)
+        if not check_param_status(valid_label_path=valid_label_path):
+            valid_df=pd.read_csv(valid_label_path,sep="|")
+            valid_annotations=valid_df.loc[:,"annotation"]
+            for annotation in valid_annotations:
+                words=annotation.split()
+                word_list.extend(words)
     # 处理CE-CSL
     elif data_set_name=="CE-CSL":
         # 处理train data
-        train_df=pd.read_csv(train_label_path,sep=",")
-        train_gloss=train_df.loc[:,"Gloss"]
-        for gloss in train_gloss:
-            words=gloss.split("/")
-            words=handle_words(words)
-            word_list.extend(words)
+        if not check_param_status(train_label_path=train_label_path):
+            train_df=pd.read_csv(train_label_path,sep=",")
+            train_gloss=train_df.loc[:,"Gloss"]
+            for gloss in train_gloss:
+                words=gloss.split("/")
+                words=handle_words(words)
+                word_list.extend(words)
         # 处理valid data
-        valid_df=pd.read_csv(valid_label_path,sep=",")
-        valid_gloss=valid_df[:,"Gloss"]
-        for gloss in valid_gloss:
-            words=gloss.split("/")
-            words=handle_words(words)
-            word_list.append(words)
+        if not check_param_status(valid_label_path=valid_label_path):
+            valid_df=pd.read_csv(valid_label_path,sep=",")
+            valid_gloss=valid_df[:,"Gloss"]
+            for gloss in valid_gloss:
+                words=gloss.split("/")
+                words=handle_words(words)
+                word_list.append(words)
         # 处理test data
-        test_df=pd.read_csv(test_label_path,sep=",")
-        test_gloss=test_df[:,"Gloss"]
-        for gloss in test_gloss:
-            words=gloss.split("/")
-            words=handle_words(words)
-            word_list.append(words)
+        if not check_param_status(test_label_path=test_label_path):
+            test_df=pd.read_csv(test_label_path,sep=",")
+            test_gloss=test_df[:,"Gloss"]
+            for gloss in test_gloss:
+                words=gloss.split("/")
+                words=handle_words(words)
+                word_list.append(words)
     # 处理RWTH-T
     elif data_set_name == "RWTH-T":
+        label_paths_name = ["train_label_path", "test_label_path", "valid_label_path"]
         # 遍历所有label path
-        for label_path in label_paths:
-            # 简历上下文管理器，打开label path
-            with open(label_path, 'r', encoding="utf-8") as file:
-                reader = csv.reader(file)
-                for index, row in enumerate(reader):
-                    # 排除标签行
-                    if index != 0:
-                        row_str_list = row[0].split("|")
-                        words =row_str_list[5].split()
-                        word_list.extend(words)
+        for label_name,label_path in zip(label_paths_name,label_paths):
+            # 判断参数状态
+            if label_path is None:
+                logger.warning(f"{label_name} not set!")
+            else:
+                # 建立上下文管理器，打开label path
+                with open(label_path, 'r', encoding="utf-8") as file:
+                    reader = csv.reader(file)
+                    for index, row in enumerate(reader):
+                        # 排除标签行
+                        if index != 0:
+                            row_str_list = row[0].split("|")
+                            words =row_str_list[5].split()
+                            word_list.extend(words)
     # 处理CSL-Daily
     elif data_set_name=="CSL-Daily":
         words_pkl="/mnt/e/Sign-Language-Recognition-ZN/labelData/CSL-Daily/csl2020ct_v2.pkl"
         with open(words_pkl,mode="rb") as pkl:
             data=pickle.load(pkl)
             word_list=handle_words(data["gloss_map"])
-
+    # 构建word2idx和idx2word
+    idx2word=[PAD] # 将pad加入到idx2word
+    word_set=sorted(list(set(word_list)))
+    idx2word.extend(word_set)
+    word2idx=dict(set((word,index) for index,word in enumerate(idx2word)))
+    # word_number=len(idx2word) # TODO len(word2id)比较合理
+    word_number=len(idx2word)-1
+    # 返回word2idx，词的数量，idx2word
+    return word2idx,word_number,idx2word # 此时的id2word本质是word_list
 if __name__=="__main__":
-    print(remove_illegal_char("a(b)c)"))
+    word2idx,word_number,idx2word=word2id(train_label_path=None)
