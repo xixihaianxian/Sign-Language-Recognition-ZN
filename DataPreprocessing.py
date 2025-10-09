@@ -1,6 +1,8 @@
+import pickle
 from typing import List
 import config
 import pandas as pd
+import csv
 
 # 删除非法字符
 def remove_illegal_char(word:str)->str:
@@ -26,7 +28,10 @@ def remove_illegal_char(word:str)->str:
     # 返回结果
     return "".join(result_chars)
 # 预处理words
-def handle_words(words:List[str]):
+def handle_words(words:List[str])->List[str]:
+    r"""
+    处理words里面的word
+    """
     # 遍历每一个word
     for i in range(len(words)):
         word=words[i]
@@ -49,11 +54,15 @@ def handle_words(words:List[str]):
         if word.isdigit():
             word=str(int(word))
         words[i]=word
+    return words
 # 建word到id的映射
 def word2id(train_label_path:str,valid_label_path:str,test_label_path:str,data_set_name:str):
+    # 定义word list
+    word_list = list()
+    # label路径列表
+    label_paths=[train_label_path, test_label_path, valid_label_path]
     # RWTH数据处理方式，可以用来微调中文模型
     if data_set_name=="RWTH":
-        word_list=list()
         # 处理train label
         train_df=pd.read_csv(train_label_path,sep="|")
         train_annotations=train_df.loc[:,"annotation"]
@@ -73,9 +82,48 @@ def word2id(train_label_path:str,valid_label_path:str,test_label_path:str,data_s
         for annotation in valid_annotations:
             words=annotation.split()
             word_list.extend(words)
+    # 处理CE-CSL
     elif data_set_name=="CE-CSL":
-        word_list=list()
-        pass
+        # 处理train data
+        train_df=pd.read_csv(train_label_path,sep=",")
+        train_gloss=train_df.loc[:,"Gloss"]
+        for gloss in train_gloss:
+            words=gloss.split("/")
+            words=handle_words(words)
+            word_list.extend(words)
+        # 处理valid data
+        valid_df=pd.read_csv(valid_label_path,sep=",")
+        valid_gloss=valid_df[:,"Gloss"]
+        for gloss in valid_gloss:
+            words=gloss.split("/")
+            words=handle_words(words)
+            word_list.append(words)
+        # 处理test data
+        test_df=pd.read_csv(test_label_path,sep=",")
+        test_gloss=test_df[:,"Gloss"]
+        for gloss in test_gloss:
+            words=gloss.split("/")
+            words=handle_words(words)
+            word_list.append(words)
+    # 处理RWTH-T
+    elif data_set_name == "RWTH-T":
+        # 遍历所有label path
+        for label_path in label_paths:
+            # 简历上下文管理器，打开label path
+            with open(label_path, 'r', encoding="utf-8") as file:
+                reader = csv.reader(file)
+                for index, row in enumerate(reader):
+                    # 排除标签行
+                    if index != 0:
+                        row_str_list = row[0].split("|")
+                        words =row_str_list[5].split()
+                        word_list.extend(words)
+    # 处理CSL-Daily
+    elif data_set_name=="CSL-Daily":
+        words_pkl="/mnt/e/Sign-Language-Recognition-ZN/labelData/CSL-Daily/csl2020ct_v2.pkl"
+        with open(words_pkl,mode="rb") as pkl:
+            data=pickle.load(pkl)
+            word_list=handle_words(data["gloss_map"])
 
 if __name__=="__main__":
     print(remove_illegal_char("a(b)c)"))
