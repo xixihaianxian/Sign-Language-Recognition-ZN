@@ -1,9 +1,13 @@
 import pickle
-from typing import List
+from typing import List,Dict,Tuple,Any
 import config
 import pandas as pd
 import csv
 from loguru import logger
+from torch.utils import data
+from glob import glob
+import os
+import numpy as np
 
 # 判断文件状态
 def check_param_status(**kwargs):
@@ -148,8 +152,8 @@ def word2id(train_label_path:str=None,valid_label_path:str=None,test_label_path:
     elif data_set_name=="CSL-Daily":
         words_pkl="/mnt/e/Sign-Language-Recognition-ZN/labelData/CSL-Daily/csl2020ct_v2.pkl"
         with open(words_pkl,mode="rb") as pkl:
-            data=pickle.load(pkl)
-            word_list=handle_words(data["gloss_map"])
+            information=pickle.load(pkl)
+            word_list=handle_words(information["gloss_map"])
     # 构建word2idx和idx2word
     idx2word=[PAD] # 将pad加入到idx2word
     word_set=sorted(list(set(word_list)))
@@ -159,5 +163,47 @@ def word2id(train_label_path:str=None,valid_label_path:str=None,test_label_path:
     word_number=len(idx2word)-1
     # 返回word2idx，词的数量，idx2word
     return word2idx,word_number,idx2word # 此时的id2word本质是word_list
+# 构建Dataset
+class BaseSignLanguageDataset(data.Dataset):
+    def __init__(self,image_dir_path:str,label_path:str,word2idx:Dict[str,int],data_set_name:str,is_train:bool=False,transform=None):
+        super().__init__()
+        # 构建属性
+        self.image_dir_path=image_dir_path # 存放图片的文件夹
+        self.label_path=label_path # label文件路径
+        self.word2dix=word2idx # word->idx
+        self.data_set_name=data_set_name # 数据集名称
+        self.is_train=is_train # 是否是训练
+        self.transform=transform # 是否对图像进行增强
+    # 登录数据
+    def load_data(self,image_dir_path,label_path):
+        logger.error(f"The load data method is not defined.") # 日志：load data方法没有定义
+        raise NotImplementedError(f"The load data method is not defined.")
+    # 处理sentence数据
+    def process_label(self,text:Any):
+        if isinstance(text,list):
+            words=text
+        elif isinstance(text,str):
+            words=text.split()
+        else:
+            logger.error(f"Data of type {type(text)} is not supported")
+            raise ValueError(f"Data of type {type(text)} is not supported")
+        text_to_id=list()
+        for word in words:
+            try:
+                text_to_id.append(self.word2dix.get(word)) # TODO 一般来说是一定会存在的，因为我构建词集的时候是将所有的词都加入到word_list里面的
+            except KeyError:
+                raise KeyError(f"The {word} key does not exist")
+        return text_to_id
+    # 收集帧索引
+    def sample_indices(self,n:int):
+        indices=np.linspace(start=0,stop=n-1,num=int(n),dtype=np.int64)
+        return indices
+    # 获取图片序列
+    def load_frame(self,image_seq_path):
+        image_path_list=glob(os.path.join(image_seq_path,"*")) # 获取目标目录下的所有图片文件
+        image_number=len(image_path_list)
+        pass # TODO 写到这里
+
 if __name__=="__main__":
-    word2idx,word_number,idx2word=word2id(train_label_path=None)
+    word2idx,word_number,idx2word=word2id()
+    print(word2idx)
