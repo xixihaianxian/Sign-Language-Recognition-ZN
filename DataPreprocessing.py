@@ -8,6 +8,9 @@ from torch.utils import data
 from glob import glob
 import os
 import numpy as np
+import cv2
+import torch
+from collections import defaultdict
 
 # 判断文件状态
 def check_param_status(**kwargs):
@@ -163,7 +166,7 @@ def word2id(train_label_path:str=None,valid_label_path:str=None,test_label_path:
     word_number=len(idx2word)-1
     # 返回word2idx，词的数量，idx2word
     return word2idx,word_number,idx2word # 此时的id2word本质是word_list
-# 构建Dataset
+# 构建基础Dataset
 class BaseSignLanguageDataset(data.Dataset):
     def __init__(self,image_dir_path:str,label_path:str,word2idx:Dict[str,int],data_set_name:str,is_train:bool=False,transform=None):
         super().__init__()
@@ -174,6 +177,7 @@ class BaseSignLanguageDataset(data.Dataset):
         self.data_set_name=data_set_name # 数据集名称
         self.is_train=is_train # 是否是训练
         self.transform=transform # 是否对图像进行增强
+        self.samples=list() # 定义sample列表
     # 登录数据
     def load_data(self,image_dir_path,label_path):
         logger.error(f"The load data method is not defined.") # 日志：load data方法没有定义
@@ -190,7 +194,7 @@ class BaseSignLanguageDataset(data.Dataset):
         text_to_id=list()
         for word in words:
             try:
-                text_to_id.append(self.word2dix.get(word)) # TODO 一般来说是一定会存在的，因为我构建词集的时候是将所有的词都加入到word_list里面的
+                text_to_id.append(self.word2dix[word]) # TODO 一般来说是一定会存在的，因为我构建词集的时候是将所有的词都加入到word_list里面的
             except KeyError:
                 raise KeyError(f"The {word} key does not exist")
         return text_to_id
@@ -202,7 +206,46 @@ class BaseSignLanguageDataset(data.Dataset):
     def load_frame(self,image_seq_path):
         image_path_list=glob(os.path.join(image_seq_path,"*")) # 获取目标目录下的所有图片文件
         image_number=len(image_path_list)
-        pass # TODO 写到这里
+        indices=self.sample_indices(image_number) # 获取关键帧索引
+        frames=[image_path_list[index] for index in indices] # 获取关键帧，但是这里是获取所有帧，如果去需要获取关键帧，可以在image_number上做更改
+        # 此时image的大小还是(256,256,3)
+        image_seq=[cv2.resize(cv2.cvtColor(cv2.imread(image_path),code=cv2.COLOR_BGR2RGB),dsize=(256,256)) for image_path in image_path_list]
+        # 对图片进行图像增强
+        if self.transform is not None:
+            image_seq=self.transform()
+        image_seq=image_seq.to(dtype=torch.float32)/127.5 - 1
+        return image_seq
+    def __getitem__(self,item):
+        image_seq_path,label=self.samples[item]
+        info=os.path.basename(image_seq_path) # 视频名称
+        image_seq=self.load_frame(image_seq_path) # 视频总帧
+        sample={"video":image_seq,"label":label,"info":info}
+        return sample
+    def __len__(self):
+        return len(self.samples)
+# 构建RWTHDataset
+class RWTHDataset(BaseSignLanguageDataset):
+    def __init__(self,image_dir_path:str,label_path:str,word2idx:Dict[str,int],data_set_name:str,is_train:bool=False,transform=None):
+        super().__init__(image_dir_path,label_path, word2idx, data_set_name, is_train, transform)
+    def load_data(self,image_dir_path,label_path):
+        # 定义label_dict
+        label_dict=defaultdict(str)
+        df=pd.read_csv(label_path,sep="|")
+        label_dict=dict(zip(df.loc[:,"id"].values,df.loc[:,"annotation"].values))
+        # 定义label,存放{id:label},label是经过处理之后的
+        labels=defaultdict(list)
+        for key in label_dict.keys():
+            labels[key]=self.process_label(label_dict.get(key))
+        # 存放视频帧的所有目录
+        files_name=os.listdir(image_dir_path)
+        files_name=sorted(files_name)
+        for name in files_name:
+            try:
+                image_seq_path=os.path.join(image_dir_path,name)
+                self.samples.append((image_seq_path,labels[name]))
+            except Exception  as error:
+                logger.error(f"{name} does not exist")
+                raise KeyError(f"{name} does not exist!")
 
 if __name__=="__main__":
     word2idx,word_number,idx2word=word2id()
