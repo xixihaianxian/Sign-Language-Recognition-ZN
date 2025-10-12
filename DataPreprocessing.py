@@ -153,7 +153,7 @@ def word2id(train_label_path:str=None,valid_label_path:str=None,test_label_path:
                             word_list.extend(words)
     # 处理CSL-Daily
     elif data_set_name=="CSL-Daily":
-        words_pkl="/mnt/e/Sign-Language-Recognition-ZN/labelData/CSL-Daily/csl2020ct_v2.pkl"
+        words_pkl=config.CSL_Daily_Data_PATH
         with open(words_pkl,mode="rb") as pkl:
             information=pickle.load(pkl)
             word_list=handle_words(information["gloss_map"])
@@ -298,6 +298,29 @@ class CECSLDataset(BaseSignLanguageDataset):
                 except Exception as error:
                     logger.error(f"{video} does not exist")
                     raise KeyError(f"{video} does not exist")
+class CSLDailyDataset(BaseSignLanguageDataset):
+    def __init__(self,image_dir_path:str,label_path:str,word2idx:Dict[str,int],data_set_name:str,is_train:bool=False,transform=None):
+        super().__init__(image_dir_path, label_path, word2idx, data_set_name, is_train, transform)
+    def load_data(self,image_dir_path,label_path):
+        label=defaultdict(list)
+        with open(config.CSL_Daily_Data_PATH,"rb") as file:
+            data=pickle.load(file)
+        # 获取info字段
+        info=data["info"]
+        for item in info:
+            gloss=item.get("label_gloss") # 使用get来获取gloss
+            if gloss is not None: # 如果gloss不存在返回None
+                raise KeyError(f"No gloss found about {item.get("name")}")
+            else:
+                label[item.get("name")]=self.process_label(gloss)
+        df=pd.read_csv(label_path,sep="|",header=None,names=["dir_name","kind"]) # 可以使用read_csv来读取txt文件
+        for image_seq_name in df.loc[:,"dir_name"]:
+            image_seq_path=os.path.join(image_dir_path,image_seq_name)
+            try:
+                self.samples.append((image_seq_path,label[image_seq_name]))
+            except KeyError as error:
+                logger.error(f"{image_seq_name} is not exist")
+                raise KeyError(f"{image_seq_name} is not exist")
 if __name__=="__main__":
     word2idx,word_number,idx2word=word2id()
     print(word2idx)
