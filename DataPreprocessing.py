@@ -183,11 +183,14 @@ class BaseSignLanguageDataset(data.Dataset):
         logger.error(f"The load data method is not defined.") # 日志：load data方法没有定义
         raise NotImplementedError(f"The load data method is not defined.")
     # 处理sentence数据
-    def process_label(self,text:Any):
+    def process_label(self,text:Any,sep:str=None)->List[int]:
         if isinstance(text,list):
             words=text
         elif isinstance(text,str):
-            words=text.split()
+            if sep is None:
+                words=text.split()
+            else:
+                words=text.split(sep)
         else:
             logger.error(f"Data of type {type(text)} is not supported")
             raise ValueError(f"Data of type {type(text)} is not supported")
@@ -246,7 +249,55 @@ class RWTHDataset(BaseSignLanguageDataset):
             except Exception  as error:
                 logger.error(f"{name} does not exist")
                 raise KeyError(f"{name} does not exist!")
-
+    def __getitem__(self, item):
+        image_seq_path,label=self.samples[item]
+        info=os.path.basename(image_seq_path) # 获取视频的名称
+        image_seq_path=os.path.join(image_seq_path,"1") # 获取主摄像机位置的video
+        image_seq=self.load_frame(image_seq_path)
+        sample={"video":image_seq,"label":label,"info":info}
+        return sample
+# 构造RWTHT的Dataset
+class RWTHTDataset(RWTHDataset):
+    def __init__(self,image_dir_path:str,label_path:str,word2idx:Dict[str,int],data_set_name:str,is_train:bool=False,transform=None):
+        super().__init__(image_dir_path, label_path, word2idx, data_set_name, is_train, transform)
+    def load_data(self,image_dir_path,label_path):
+        label_dict=defaultdict(str)
+        df=pd.read_csv(label_path,sep="|")
+        for name,orth in zip(df.loc[:,"name"],df.loc[:,"orth"]):
+            label_dict[name]=orth
+        label=defaultdict(list)
+        for name in label_dict:
+            label[name]=self.process_label(label_dict[name])
+        files_name=os.listdir(image_dir_path)
+        for file_name in files_name:
+            try:
+                image_seq_path=os.path.join(image_dir_path,file_name)
+                self.samples.append((image_seq_path,label[file_name]))
+            except Exception as error:
+                logger.error(f"{file_name} does not exist")
+                raise KeyError(f"{file_name} does not exist")
+class CECSLDataset(BaseSignLanguageDataset):
+    def __init__(self,image_dir_path:str,label_path:str,word2idx:Dict[str,int],data_set_name:str,is_train:bool=False,transform=None):
+        super().__init__(image_dir_path, label_path, word2idx, data_set_name, is_train, transform)
+    def load_data(self,image_dir_path,label_path):
+        label_dict=defaultdict(str)
+        df=pd.read_csv(label_path,sep=",")
+        for number,gloss in zip(df.loc[:,"Number"],df.loc[:,"Gloss"]):
+            label_dict[number]=gloss
+        label=defaultdict(list)
+        for number in label_dict:
+            label[number]=self.process_label(label_dict[number],sep="/")
+        files_name=os.listdir(image_dir_path)
+        for file_name in files_name:
+            translator_dir=os.path.join(image_dir_path,file_name) # 这里不太一样，先获取翻译员的目录
+            video_dir=sorted(os.listdir(translator_dir))
+            for video in video_dir: # 视频目录，但如果是视频处理之后的dir的话就是frame文件目录
+                try:
+                    image_seq_path=os.path.join(translator_dir,video)
+                    self.samples.append((image_seq_path,label[video]))
+                except Exception as error:
+                    logger.error(f"{video} does not exist")
+                    raise KeyError(f"{video} does not exist")
 if __name__=="__main__":
     word2idx,word_number,idx2word=word2id()
     print(word2idx)
