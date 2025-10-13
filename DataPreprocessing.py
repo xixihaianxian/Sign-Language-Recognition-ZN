@@ -11,6 +11,7 @@ import numpy as np
 import cv2
 import torch
 from collections import defaultdict
+import math
 
 # 判断文件状态
 def check_param_status(**kwargs):
@@ -321,6 +322,58 @@ class CSLDailyDataset(BaseSignLanguageDataset):
             except KeyError as error:
                 logger.error(f"{image_seq_name} is not exist")
                 raise KeyError(f"{image_seq_name} is not exist")
+# 定义默认字典
+class custom_defaultdict(defaultdict):
+    def __init__(self,*args,**kwargs):
+        super().__init__(*args,**kwargs) # 继承父类
+        self.warned=set()
+        self.warning_enabled=False # 是否启用这个warning,默认是没有启用的
+    def __getitem__(self,key):
+        if key=="text" and key not in self.warned and self.warning_enabled:
+            logger.warning(f"The batch['text'] is no longer in use, please replace it with a batch['label'].")
+            # 将key更新到warned里面
+            self.warned.add(key)
+        # 使用父类的__getitem__来获取value
+        return super().__getitem__(key)
+# 设置collate_fn函数，可用于之后的DataLoader,同时处理样本
+# 论文参考1. https://arxiv.org/pdf/2402.19118 2. https://arxiv.org/pdf/1910.06709 3. https://arxiv.org/pdf/2311.07623
+def collate_fn(batch):
+    collated=custom_defaultdict()
+    # 对batch进行排序
+    batch=list(sorted(batch,key=lambda x:len(x["video"]),reverse=True))
+    # 获取视频时间最长的视频的总帧
+    max_len=len(batch[0]["video"])
+    # 左边补帧，为了保持时序上下文，让卷积或Transformer能在开头就有足够上下文窗口
+    left_pad=6
+    # 总步长，模型中多层Conv、Pooling、或Temporal Transformer导致的总下采样率（比如 4 表示长度被缩小 4 倍）
+    total_stride=4
+    # 右边补帧，使补完后的长度能被 total_stride 整除，避免特征图维度不匹配错误
+    right_pad=math.ceil(max_len/total_stride)*total_stride-max_len+left_pad
+    # 计算出新的总长
+    max_len=max_len+left_pad+right_pad
+    # 填充总帧
+    modify_videos=list()
+    for sample in batch:
+        video=sample.get("video")
+        # collated["video_length"].append(torch.tensor([math.ceil(len(video)/total_stride)*total_stride+left_pad+right_pad]))
+        collated["video_length"].append(torch.tensor([math.ceil(len(video)/total_stride)*total_stride+2*left_pad]))
+        modify_videos.append(
+            torch.cat(
+                (
+                    video[0][None].expand(left_pad,-1,-1,-1), # 左边补6帧
+                    video, # 中间不发生改变
+                    video[-1][None].expand(max_len-len(video)-left_pad,-1,-1,-1) # 右边补帧
+                    
+                ),dim=0
+            )
+        )
+        collated["label"].append(torch.tensor(sample.get("label"),dtype=torch.int64))
+        collated["info"].append(sample.get("info"))
+        collated["expand"].append([left_pad,max_len-left_pad-len(video)])
+    modify_videos=torch.stack(modify_videos,dim=0)
+    collated["video"]=modify_videos
+    collated.warning_enabled=True # 启动warning
+    return collated
 if __name__=="__main__":
     word2idx,word_number,idx2word=word2id()
     print(word2idx)
