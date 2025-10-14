@@ -374,6 +374,52 @@ def collate_fn(batch):
     collated["video"]=modify_videos
     collated.warning_enabled=True # 启动warning
     return collated
+# 这个好像用不到，主要功能是计算数据的长度，有多少条数据，以及将数据转移到指定的设备上
+def data_reshape(seq_data,device):
+    seq_data_len=list(map(len,seq_data))
+    batchsize=len(seq_data_len)
+    seq_data=torch.cat(seq_data,dim=0).to(device=torch.device(device))
+    return seq_data,batchsize,seq_data_len
+# 标签处理，CTC是针对模型输出标签的处理，并不是输入标签的处理。经过神经网络和CTC层后，包含重复和空白，需要remove_blank这样的后处理函数来清理
+# https://www.cs.toronto.edu/~graves/icml_2006.pdf
+def remove_blank(label,max_sentence_len,blank=0,pad=0):
+    modify_label=list()
+    previous=None # 上一次的标签
+    # 去除连续相同的标签
+    for item in label:
+        if item!=previous:
+            modify_label.append(item)
+            previous=item
+        else:
+            pass
+    # 删除blank
+    modify_label=list(item for item in modify_label if item!=blank)
+    # 使用pad来填充modify_label
+    if len(modify_label)<max_sentence_len:
+        len_lack=max_sentence_len-len(modify_label)
+        modify_label.extend([pad]*len_lack)
+    else:
+        modify_label=modify_label[:max_sentence_len]
+    # 转化为张量
+    modify_label=torch.tensor(modify_label,dtype=torch.int64)
+    return modify_label
+def ctc_greedy_decode(result:torch.Tensor,max_sentence_len,pad,blank=0):
+    # 去每列的最大值索引
+    index=result.argmax(dim=-1)
+    # 索引为0的位置，值为blank
+    result=remove_blank(label=index,max_sentence_len=max_sentence_len,blank=blank,pad=pad)
+    return result
+# 将输出的结果写入文件
+def write_to_file(path:str,info,output):
+    with open(path,mode="w",encoding="utf-8") as file:
+        for sample_index,sample in enumerate(output):
+            for word_index,word in enumerate(sample):
+                # info 里面包含了视频的名称
+                # word_index*1.0/100获取的是单个词开始的时间戳
+                # (word_index+1)*1.0/100获取的是单个词结束的时间戳
+                # word 获取的单个单词
+                file.writelines(f"{info[sample_index]} 1 {word_index*1.0/100:.2f} {(word_index+1)*1.0/100:.2f} {word[0]}")
+
 if __name__=="__main__":
     word2idx,word_number,idx2word=word2id()
     print(word2idx)
