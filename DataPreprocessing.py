@@ -313,7 +313,7 @@ class CSLDailyDataset(BaseSignLanguageDataset):
         for item in info:
             gloss=item.get("label_gloss") # 使用get来获取gloss
             if gloss is not None: # 如果gloss不存在返回None
-                raise KeyError(f"No gloss found about {item.get("name")}")
+                raise KeyError(f"No gloss found about {item.get('name')}")
             else:
                 label[item.get("name")]=self.process_label(gloss)
         df=pd.read_csv(label_path,sep="|",header=None,names=["dir_name","kind"]) # 可以使用read_csv来读取txt文件
@@ -439,7 +439,9 @@ class SeqKD(nn.Module):
         start_idx=0 if use_blank else 1 # 设置start_dix,当use_blank=True时设置start_dix为0
         # 给定的输入x应该为对数概率形式，即首先对网络的输出应用softmax，之后再取对数(可由F.log_softmax函数直接实现)
         prediction_logprobs=F.log_softmax(prediction_logits[:,:,start_idx:]/self.T,dim=-1).view(-1,ref_logits.size(2)-start_idx)
+        # prediction_logprobs=F.log_softmax(prediction_logits[:,:,start_idx:]/self.T,dim=-1).contiguous().view(-1,ref_logits.size(2)-start_idx)
         ref_probs=F.softmax(ref_logits[:,:,start_idx:]/self.T,dim=-1).view(-1,ref_logits.size(2)-start_idx)
+        # ref_probs=F.softmax(ref_logits[:,:,start_idx:]/self.T,dim=-1).contiguous().view(-1,ref_logits.size(2)-start_idx)
         # https://arxiv.org/pdf/1606.07947
         loss=self.kdloss(prediction_logprobs,ref_probs)*self.T*self.T
         return loss
