@@ -12,6 +12,8 @@ import cv2
 import torch
 from collections import defaultdict
 import math
+from torch import nn
+from torch.nn import functional as F
 
 # 判断文件状态
 def check_param_status(**kwargs):
@@ -419,7 +421,29 @@ def write_to_file(path:str,info,output):
                 # (word_index+1)*1.0/100获取的是单个词结束的时间戳
                 # word 获取的单个单词
                 file.writelines(f"{info[sample_index]} 1 {word_index*1.0/100:.2f} {(word_index+1)*1.0/100:.2f} {word[0]}")
-
+# 序列任务的知识蒸馏（Knowledge Distillation）损失函数实现
+# https://www.isca-archive.org/interspeech_2022/tian22_interspeech.pdf
+class SeqKD(nn.Module):
+    def __init__(self,T=1):
+        super().__init__()
+        # 使用KL散度损失作为基础损失函数
+        self.kdloss=nn.KLDivLoss(reduction="batchmean")
+        # T代表温度，用于控制概率分布分损失函数
+        self.T=T
+    def forward(self, prediction_logits:torch.Tensor, ref_logits:torch.Tensor, use_blank:bool=True):
+        r"""
+        prediction_logits: 学生模型输出logits
+        ref_logits: 教师模型输出的logits
+        use_blank: 是否使用空白标签
+        """
+        start_idx=0 if use_blank else 1 # 设置start_dix,当use_blank=True时设置start_dix为0
+        # 给定的输入x应该为对数概率形式，即首先对网络的输出应用softmax，之后再取对数(可由F.log_softmax函数直接实现)
+        prediction_logprobs=F.log_softmax(prediction_logits[:,:,start_idx:]/self.T,dim=-1).view(-1,ref_logits.size(2)-start_idx)
+        ref_probs=F.softmax(ref_logits[:,:,start_idx:]/self.T,dim=-1).view(-1,ref_logits.size(2)-start_idx)
+        # https://arxiv.org/pdf/1606.07947
+        loss=self.kdloss(prediction_logprobs,ref_probs)*self.T*self.T
+        return loss
+        
 if __name__=="__main__":
     word2idx,word_number,idx2word=word2id()
     print(word2idx)
