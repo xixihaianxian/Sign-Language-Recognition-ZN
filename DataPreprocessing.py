@@ -448,4 +448,3 @@ class SeqKD(nn.Module):
         
 if __name__=="__main__":
     word2idx,word_number,idx2word=word2id()
-    print(word2idx)
