@@ -25,9 +25,9 @@ class Compose(object):
 class WERAugment(object):
     def __init__(self,boundary_path,k):
         super().__init__()
-        self.boundary_dict=boundary_path
+        self.boundary_path=boundary_path
         # 读取视频分段信息，同时转化为list
-        self.boundary_dict=np.load(file=self.boundary_dict,allow_pickle=True).item()
+        self.boundary_dict=np.load(file=self.boundary_path,allow_pickle=True).item()
         # 最大操作次数
         self.k=k
     # 对视频序列进行相关的操作
@@ -48,7 +48,7 @@ class WERAugment(object):
         # 补全开头和结尾的边界
         boundary_info=[0]+boundary_info+[len(video)]
         # 确定修改次数，防止所有的帧都被删除
-        k=np.random.randint(min(self.k,len(label)-1))
+        k=np.random.randint(min(self.k,max(len(label)-1,1)))
         # 进行k轮d操作
         for n in range(k):
             video_frame_index,label,boundary_info=self.one_operation(video_frame_index,label,boundary_info)
@@ -66,8 +66,8 @@ class WERAugment(object):
             return self.substitution(*params)
     # 删除操作
     @staticmethod
-    def delete(video_frame_index:List[int],label:List[int],boundary_info):
-        delete_label_index=np.random.choice(len(label))
+    def delete(video_frame_index:List[int],label:List[int],boundary_info:List[int]):
+        delete_label_index=np.random.randint(len(label))
         # 更新之后的video
         video_frame_index=video_frame_index[:boundary_info[delete_label_index]]+video_frame_index[boundary_info[delete_label_index+1]:]
         # 删除片段的大小
@@ -75,13 +75,56 @@ class WERAugment(object):
         # 更新之后发边界信息
         boundary_info=boundary_info[:delete_label_index]+[snippet-delete_snippet_size for snippet in boundary_info[delete_label_index+1:]]
         # 更新之后的label
-        label=label.pop(delete_label_index)
+        label.pop(delete_label_index)
         return video_frame_index,label,boundary_info
     # 插入操作
     @staticmethod
-    def insert(video_frame_index,label,boundary_info):
-        pass
+    def insert(video_frame_index:List[int],label:List[int],boundary_info:List[int]):
+        # 选择复制哪个片段
+        insert_label_position=np.random.randint(len(label))
+        # 需要插入的位置(帧位置)
+        insert_snippet=np.random.choice(boundary_info)
+        # 插入片段的帧索引
+        snippet_index=boundary_info.index(insert_snippet)
+        video_frame_index=video_frame_index[:insert_snippet]+video_frame_index[boundary_info[insert_label_position]:boundary_info[insert_label_position+1]]+video_frame_index[insert_snippet:]
+        label=label[:snippet_index]+[label[insert_label_position]]+label[snippet_index:]
+        insert_snippet_size=boundary_info[snippet_index+1]-boundary_info[snippet_index]
+        boundary_info=boundary_info[:snippet_index]+[boundary_info[snippet_index-1]+insert_snippet_size]+[snippet+insert_snippet_size for snippet in boundary_info[snippet_index:]]
+        return video_frame_index,label,boundary_info
     # 替换操作
     @staticmethod
     def substitution(video_frame_index,label,boundary_info):
-        pass
+        # 使用哪个替换(索引)
+        substitution_index=np.random.randint(len(label))
+        # 需要替换的片段(索引)
+        target_index=np.random.randint(len(label))
+        video_frame_index=video_frame_index[:boundary_info[target_index]]+video_frame_index[boundary_info[substitution_index]:boundary_info[substitution_index+1]]+video_frame_index[boundary_info[target_index+1]:]
+        # label=label[:target_index]+[label[substitution_index]]+label[target_index+1:]
+        label[target_index]=label[substitution_index]
+        substitution_snippet_size=boundary_info[substitution_index+1]-boundary_info[substitution_index]-(boundary_info[target_index+1]-boundary_info[target_index])
+        boundary_info=boundary_info[:target_index+1]+[snippet+substitution_snippet_size for snippet in boundary_info[target_index+1:]]
+        return video_frame_index,label,boundary_info
+# 转化为Tensor张量
+class ToTensor(object):
+    def __init__(self):
+        super().__init__()
+    def __call__(self,data):
+        if isinstance(data,list): # list转化为tensor
+            data=torch.tensor(data,dtype=torch.float32)
+        elif isinstance(data,torch.Tensor):# 转变为float32
+            data=data.to(dtype=torch.float32)
+        elif isinstance(data,np.ndarray):# 数组转化tensor
+            data=torch.from_numpy(data).to(dtype=torch.float32)
+        else:
+            logger.error(f"It is an unsupported type")
+            raise TypeError(f"It is an unsupported type")
+        return data
+# 随机裁剪
+class RandomCrop(object):
+    r"""
+    size: size is sequence or int
+    """
+    def __init__(self):
+        super().__init__()
+if __name__=="__main__":
+    pass
