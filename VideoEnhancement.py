@@ -7,6 +7,8 @@ from typing import List,Any
 from loguru import logger
 import numpy as np
 import copy
+import numbers
+from PIL import Image
 
 # 构造transform组合组件，可以将多个transform组合起来使用
 class Compose(object):
@@ -21,6 +23,7 @@ class Compose(object):
             for transform in self.transforms:
                 image=transform(image)
         return image
+# TODO 可能有bug注意使用
 # 对视频序列进行删除，插入，替换操作
 class WERAugment(object):
     def __init__(self,boundary_path,k):
@@ -68,6 +71,7 @@ class WERAugment(object):
     @staticmethod
     def delete(video_frame_index:List[int],label:List[int],boundary_info:List[int]):
         delete_label_index=np.random.randint(len(label))
+        # logger.info(f"delete index is {delete_label_index}")
         # 更新之后的video
         video_frame_index=video_frame_index[:boundary_info[delete_label_index]]+video_frame_index[boundary_info[delete_label_index+1]:]
         # 删除片段的大小
@@ -88,12 +92,15 @@ class WERAugment(object):
         snippet_index=boundary_info.index(insert_snippet)
         video_frame_index=video_frame_index[:insert_snippet]+video_frame_index[boundary_info[insert_label_position]:boundary_info[insert_label_position+1]]+video_frame_index[insert_snippet:]
         label=label[:snippet_index]+[label[insert_label_position]]+label[snippet_index:]
-        insert_snippet_size=boundary_info[snippet_index+1]-boundary_info[snippet_index]
-        boundary_info=boundary_info[:snippet_index]+[boundary_info[snippet_index-1]+insert_snippet_size]+[snippet+insert_snippet_size for snippet in boundary_info[snippet_index:]]
+        insert_snippet_size=boundary_info[insert_label_position+1]-boundary_info[insert_label_position]
+        if snippet_index!=0:
+            boundary_info=boundary_info[:snippet_index]+[boundary_info[snippet_index-1]+insert_snippet_size]+[snippet+insert_snippet_size for snippet in boundary_info[snippet_index:]]
+        else:
+            boundary_info=[boundary_info[0]]+[boundary_info[0]+insert_snippet_size]+[snippet+insert_snippet_size for snippet in boundary_info[1:]]
         return video_frame_index,label,boundary_info
     # 替换操作
     @staticmethod
-    def substitution(video_frame_index,label,boundary_info):
+    def substitution(video_frame_index:List[int],label:List[int],boundary_info:List[int]):
         # 使用哪个替换(索引)
         substitution_index=np.random.randint(len(label))
         # 需要替换的片段(索引)
@@ -119,12 +126,49 @@ class ToTensor(object):
             logger.error(f"It is an unsupported type")
             raise TypeError(f"It is an unsupported type")
         return data
-# 随机裁剪
+# 视频随机裁剪
 class RandomCrop(object):
     r"""
     size: size is sequence or int
     """
-    def __init__(self):
+    def __init__(self,size):
+        # size代表对每一帧裁剪之后输出的单帧的大小
         super().__init__()
+        if isinstance(size,numbers.Number): # 如果size是数字的情况下的判断
+            if size<=0:
+                logger.error(f"If the input is a number, it must be greater than or equal to zero.")
+                raise ValueError(f"If the input is a number, it must be greater than or equal to zero.")
+            self.size=(size,size)
+        else: # 如果size不是数字的情况下的判断
+            if len(size)!=2:
+                logger.error(f"If it is a set, the length can only be two.")
+                raise ValueError(f"If it is a set, the length can only be two.")
+            self.size=size
+    def __call__(self,video_sequence):
+        crop_height,crop_width=self.size
+        # 随机抽取一帧
+        random_index=np.random.choice(len(video_sequence))
+        video_frame=video_sequence[random_index]
+        # 获取原本帧的高宽
+        if isinstance(video_frame,np.ndarray):
+            image_height,image_width,image_channel=video_frame.shape
+        elif isinstance(video_frame,Image.Image):
+            image_width,image_height=video_frame.size
+        else:
+            logger.error(f"Expected input is a numpy.ndarray or PIL.Image.Image，but input is {type(video_frame)}")
+            raise ValueError(f"Expected input is a numpy.ndarray or PIL.Image.Image")
+        # 将PIL.Image.Image类型转化为numpy.ndarray
+        video_sequence=[np.array(frame) for frame in video_sequence]
+        # 随机裁剪
+        if crop_height>image_height: # crop_height大于image_image是需要填充
+            # 计算出需要填充的高
+            pad_height=crop_height-image_height
+
+        else:
+            pass
+        if crop_width>image_width:
+            pass
+        else:
+            pass
 if __name__=="__main__":
     pass
