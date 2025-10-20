@@ -1,4 +1,6 @@
-# 今天心情😊
+# author:YuHongfeng
+# time:2025/10/20 11:07
+# mood:😄
 import torch
 from torchvision import transforms
 from torch import nn
@@ -9,6 +11,7 @@ import numpy as np
 import copy
 import numbers
 from PIL import Image
+import random
 
 # 构造transform组合组件，可以将多个transform组合起来使用
 class Compose(object):
@@ -129,9 +132,10 @@ class ToTensor(object):
 # 视频随机裁剪
 class RandomCrop(object):
     r"""
-    size: size is sequence or int
+    使用前请保证video_sequence的数据类型是数组或者是PIL.Image.Image对象，不然会报错
+    size: size is sequence or int. Notices: size shape is (height,width)
     """
-    def __init__(self,size):
+    def __init__(self,size:Any):
         # size代表对每一帧裁剪之后输出的单帧的大小
         super().__init__()
         if isinstance(size,numbers.Number): # 如果size是数字的情况下的判断
@@ -154,21 +158,72 @@ class RandomCrop(object):
             image_height,image_width,image_channel=video_frame.shape
         elif isinstance(video_frame,Image.Image):
             image_width,image_height=video_frame.size
+            # 将PIL.Image.Image类型转化为numpy.ndarray
+            video_sequence = [np.array(frame.convert("RGB")) for frame in video_sequence]
         else:
             logger.error(f"Expected input is a numpy.ndarray or PIL.Image.Image，but input is {type(video_frame)}")
             raise ValueError(f"Expected input is a numpy.ndarray or PIL.Image.Image")
-        # 将PIL.Image.Image类型转化为numpy.ndarray
-        video_sequence=[np.array(frame) for frame in video_sequence]
         # 随机裁剪
         if crop_height>image_height: # crop_height大于image_image是需要填充
             # 计算出需要填充的高
             pad_height=crop_height-image_height
-
+            video_sequence=[np.pad(frame,pad_width=((pad_height//2,pad_height-pad_height//2),(0,0),(0,0)),mode="constant",constant_values=0) for frame in video_sequence]
+            height_start=0
         else:
-            pass
+            height_start=np.random.randint(low=0,high=image_height-crop_height)
         if crop_width>image_width:
-            pass
+            # 计算出需要填充的宽
+            pad_width=crop_width-image_width
+            video_sequence=[np.pad(frame,pad_width=((0,0),(pad_width//2,pad_width-pad_width//2),(0,0)),mode="constant",constant_values=0) for frame in video_sequence]
+            width_start=0
         else:
-            pass
+            width_start=np.random.randint(low=0,high=image_width-crop_width)
+        video_sequence=[frame[height_start:height_start+crop_height,width_start:width_start+crop_width,:] for frame in video_sequence]
+        # 将列表转化为数组
+        video_sequence=np.array(video_sequence,dtype=np.float32)
+        return video_sequence
+# 中心裁剪
+class CenterCrop(RandomCrop):
+    def __init__(self,size):
+        super().__init__(size)
+    def __call__(self,video_sequence):
+        # 随便抽取一帧
+        choice_frame=np.random.choice(len(video_sequence))
+        video_frame=video_sequence[choice_frame]
+        # 获取原帧的数据
+        if isinstance(video_frame,np.ndarray):
+            image_height,image_width,channel=video_frame.shape
+        elif isinstance(video_frame,Image.Image):
+            image_width,image_height=video_frame.size
+            # 将PIL.Image.Image转化为numpy数组
+            video_sequence=[np.array(frame.convert("RGB")) for frame in video_sequence]
+        else:
+            logger.error(f"Only supports PIL.Image.Image and numpy.ndarray")
+            raise TypeError(f"Only supports PIL.Image.Image and numpy.ndarray")
+        new_height,new_width=self.size
+        # 确定裁剪之后的宽高
+        new_height=image_height if new_height>=image_height else new_height
+        new_width=image_width if new_width>=image_width else new_width
+        # 确定裁剪起点
+        top=int(round((image_height-new_height)/2.))
+        left=int(round((image_width-new_width)/2.))
+        # 裁剪
+        video_sequence=[frame[top:top+new_height,left:left+new_width,:] for frame in video_sequence]
+        video_sequence=np.array(video_sequence,dtype=np.float32)
+        return video_sequence
+# 随机反转
+class RandomHorizontalFlip:
+    def __init__(self,prob):
+        self.prob=prob
+    def __call__(self,video_sequence:np.ndarray)->np.ndarray:
+        # 计算概率，此时需要确定video_sequence的形状为（batch_size，height，width，channel）
+        if not isinstance(video_sequence,np.ndarray):
+            video_sequence=np.array([np.array(frame) for frame in video_sequence])
+        flag=random.random()
+        # 水平翻转
+        if flag<self.prob:
+            video_sequence=np.flip(video_sequence,axis=2)
+            video_sequence=np.ascontiguousarray(video_sequence)
+        return video_sequence
 if __name__=="__main__":
     pass
