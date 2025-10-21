@@ -12,6 +12,8 @@ import copy
 import numbers
 from PIL import Image
 import random
+import scipy
+import matplotlib.pyplot as plt
 
 # 构造transform组合组件，可以将多个transform组合起来使用
 class Compose(object):
@@ -180,7 +182,7 @@ class RandomCrop(object):
             width_start=np.random.randint(low=0,high=image_width-crop_width)
         video_sequence=[frame[height_start:height_start+crop_height,width_start:width_start+crop_width,:] for frame in video_sequence]
         # 将列表转化为数组
-        video_sequence=np.array(video_sequence,dtype=np.float32)
+        video_sequence=np.array(video_sequence)
         return video_sequence
 # 中心裁剪
 class CenterCrop(RandomCrop):
@@ -209,7 +211,7 @@ class CenterCrop(RandomCrop):
         left=int(round((image_width-new_width)/2.))
         # 裁剪
         video_sequence=[frame[top:top+new_height,left:left+new_width,:] for frame in video_sequence]
-        video_sequence=np.array(video_sequence,dtype=np.float32)
+        video_sequence=np.array(video_sequence)
         return video_sequence
 # 随机反转
 class RandomHorizontalFlip:
@@ -225,5 +227,47 @@ class RandomHorizontalFlip:
             video_sequence=np.flip(video_sequence,axis=2)
             video_sequence=np.ascontiguousarray(video_sequence)
         return video_sequence
+# 随机旋转
+class RandomRotation:
+    def __init__(self,angle):
+        if isinstance(angle,numbers.Number):
+            if angle>0:
+                self.angle=(-angle,angle)
+            else:
+                logger.warning(f"It is recommended to enter a number greater than 0 for the angle.")
+                self.angle=(angle,-angle)
+        else:
+            # 如果angle是序列的那么angel的长度应该是2，当超出这个长度的时候就会报错
+            if len(angle)!=2:
+                logger.error(f"If angle is a sequence, its length should be 2.")
+                raise Exception(f"If angle is a sequence, its length should be 2.")
+            else:
+                self.angle=angle
+    def __call__(self,video_sequence=None):
+        rotation_angle=np.random.uniform(low=self.angle[0],high=self.angle[1])
+        # 数组旋转
+        if isinstance(video_sequence[0],np.ndarray):
+            video_sequence=[scipy.ndimage.rotate(input=frame,angle=rotation_angle,reshape=False,mode="constant",cval=0) for frame in video_sequence]
+        # Image.Image对象旋转
+        elif isinstance(video_sequence[0],Image.Image):
+            video_sequence=[np.array(frame.rotate(angle=rotation_angle,expand=False,fillcolor=None).convert("RGB")) for frame in video_sequence]
+        else:
+            logger.error(f"video sequence only support numpy.ndarray or PIL.Image.Image!")
+            raise TypeError(f"video sequence only support numpy.ndarray or PIL.Image.Image!")
+        return np.array(video_sequence)
+# 时间重采样
+class TemporalRescale:
+    def __init__(self,temp_scaling=0.2,frame_interval=1):
+        r"""
+        temp_scaling: 时间缩放比例，控制速度变化范围。比如0.2代表视频的长度在原来长度是80%和120%之间变化
+        frame_interval=1：帧间隔，用于计算最大长度。 每个多少帧取一阵
+        """
+        self.min_len=32 # 最小帧（总帧数）
+        self.max_len=int(np.ceil(230/frame_interval)) #最大帧（总帧数）
+        self.L=1.0-temp_scaling # 最小缩放比例
+        self.U=1.0+temp_scaling # 最大缩放比例
+    def __call__(self,video_sequence):
+        scale=4 # 对齐因子
+        video_sequence_len=len(video_sequence) # 视频的总帧数
 if __name__=="__main__":
-    pass
+    video=np.random.randn(5,255,255)
