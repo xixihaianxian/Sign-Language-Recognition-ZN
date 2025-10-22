@@ -14,6 +14,7 @@ from PIL import Image
 import random
 import scipy
 import matplotlib.pyplot as plt
+import cv2
 
 # 构造transform组合组件，可以将多个transform组合起来使用
 class Compose(object):
@@ -268,6 +269,66 @@ class TemporalRescale:
         self.U=1.0+temp_scaling # 最大缩放比例
     def __call__(self,video_sequence):
         scale=4 # 对齐因子
-        video_sequence_len=len(video_sequence) # 视频的总帧数
+        original_len=len(video_sequence) # 视频的总帧数
+        # 计算修改之后的长度
+        alter_len=int(original_len*(self.L+(self.U-self.L)*np.random.random()))
+        if alter_len<self.min_len:
+            alter_len=self.min_len
+        if alter_len>self.max_len:
+            alter_len=self.max_len
+        if (alter_len-scale)%scale!=0:
+            alter_len+=scale-(alter_len-scale)%scale
+        if alter_len<=original_len:
+            # 如果alter的长度小于original_len那就没有重复的再original video里面抽取帧
+            index=sorted(random.sample(range(original_len),k=alter_len))
+        else:
+            # 如果alter_len大于original_len那就需要重复的再original video里面抽取帧
+            index=sorted(random.choices(range(original_len),k=alter_len))
+        alter_sequence=video_sequence[index]
+        return alter_sequence
+# 随机更改形状
+class RandomResize:
+    def __init__(self,rate,interpolation="bilinear"):
+        r"""
+        rate: 控制随机缩放范围
+        inter: 差值方式，控制缩放之后图片的平滑程度
+        """
+        self.rate=rate
+        self.interpolation=interpolation
+    def __call__(self,video_sequence):
+        # 缩放比例
+        scale=random.uniform(a=1-self.rate,b=1+self.rate)
+        image_height,image_width,channel=video_sequence[0].shape
+        if isinstance(video_sequence[0],np.ndarray):
+            alter_shape=(image_width*scale,image_height*scale)
+            # opencv resize
+            video_sequence=[cv2.resize(frame,dsize=alter_shape,interpolation=self.get_cv_interpolation(self.interpolation)) for frame in video_sequence]
+        elif isinstance(video_sequence[0],Image.Image):
+            image_width,image_height=video_sequence[0].size
+            alter_shape=(image_width*scale,image_height*scale)
+            # PIL resize
+            video_sequence=[frame.resize(size=alter_shape,resample=self.get_PIL_interpolation(self.interpolation)) for frame in video_sequence]
+    def get_PIL_interpolation(self,interpolation):
+        if interpolation=="nearest":
+            return cv2.INTER_NEAREST
+        elif interpolation=="bilinear":
+            return cv2.INTER_LINEAR
+        elif interpolation=="bicubic":
+            return cv2.INTER_CUBIC
+        elif interpolation=="lanczos":
+            return cv2.INTER_LANCZOS4
+        elif interpolation=="area":
+            return cv2.INTER_AREA
+    def get_cv_interpolation(self,interpolation):
+        if interpolation=="nearest":
+            return Image.NEAREST
+        elif interpolation=="lanczos":
+            return Image.LANCZOS
+        elif interpolation=="bilinear":
+            return Image.BILINEAR
+        elif interpolation=="bicubic":
+            return Image.BICUBIC
+        elif interpolation=="area":
+            return Image.BOX
 if __name__=="__main__":
     video=np.random.randn(5,255,255)
