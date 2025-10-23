@@ -347,7 +347,7 @@ class RandomResize:
             logger.error(f"Interpolation of this type is not supported")
             raise ValueError(f"Interpolation of this type is not supported")
 # 固定比例修改形状
-class Resize(RandomResize):
+class ResizeByProbability(RandomResize):
     def __init__(self, rate=1.0, interp='bilinear'):
         super().__init__(rate,interp)
     def __call__(self, clip):
@@ -367,5 +367,20 @@ class Resize(RandomResize):
         else:
             # np.array会自动的把(width,height)转化为(height,width,channel)
             return [np.array(img.resize(size=new_size, resample=self.get_pil_interpolation(self.interpolation))) for img in clip]
+# 固定大小修改形状
+class ResizeBySize(RandomResize):
+    def __init__(self,size,interpolation="bilinear"):
+        self.size=size
+        self.interpolation=interpolation
+    def __call__(self,video_sequence):
+        if isinstance(video_sequence[0],np.ndarray):
+            video_sequence=[cv2.resize(frame,dsize=self.size,interpolation=self.get_opencv_interpolation(self.interpolation)) for frame in video_sequence]
+            return video_sequence
+        elif isinstance(video_sequence[0],Image.Image):
+            video_sequence=[frame.resize(size=self.size,resample=self.get_pil_interpolation(self.interpolation)) for frame in video_sequence]
+            return video_sequence
+        else:
+            logger.error(f"Only support numpy.ndarray or PIL.Image.Image!")
+            raise ValueError(f"Only support numpy.ndarray or PIL.Image.Image!")
 if __name__=="__main__":
-    video=np.random.randn(5,255,255)
+    pass
