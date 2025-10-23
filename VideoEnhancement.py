@@ -298,17 +298,26 @@ class RandomResize:
     def __call__(self,video_sequence):
         # 缩放比例
         scale=random.uniform(a=1-self.rate,b=1+self.rate)
-        image_height,image_width,channel=video_sequence[0].shape
         if isinstance(video_sequence[0],np.ndarray):
-            alter_shape=(image_width*scale,image_height*scale)
+            image_height, image_width, channel = video_sequence[0].shape
+            alter_height,alter_width=int(image_height*scale),int(image_width*scale)
+            # 修改之后的形状
+            alter_shape=(alter_width,alter_height)
             # opencv resize
-            video_sequence=[cv2.resize(frame,dsize=alter_shape,interpolation=self.get_cv_interpolation(self.interpolation)) for frame in video_sequence]
+            video_sequence=[cv2.resize(frame,dsize=alter_shape,interpolation=self.get_opencv_interpolation(self.interpolation)) for frame in video_sequence]
+            return video_sequence
         elif isinstance(video_sequence[0],Image.Image):
             image_width,image_height=video_sequence[0].size
-            alter_shape=(image_width*scale,image_height*scale)
+            alter_height,alter_width=int(image_height*scale),int(image_width*scale)
+            alter_shape=(alter_width,alter_height)
             # PIL resize
-            video_sequence=[frame.resize(size=alter_shape,resample=self.get_PIL_interpolation(self.interpolation)) for frame in video_sequence]
-    def get_PIL_interpolation(self,interpolation):
+            video_sequence=[frame.resize(size=alter_shape,resample=self.get_pil_interpolation(self.interpolation)) for frame in video_sequence]
+            return video_sequence
+        else:
+            logger.error(f"Only support numpy.ndarray or PIL.Image.Image!")
+            raise ValueError(f"Only support numpy.ndarray or PIL.Image.Image!")
+    @ staticmethod
+    def get_opencv_interpolation(interpolation):
         if interpolation=="nearest":
             return cv2.INTER_NEAREST
         elif interpolation=="bilinear":
@@ -319,7 +328,11 @@ class RandomResize:
             return cv2.INTER_LANCZOS4
         elif interpolation=="area":
             return cv2.INTER_AREA
-    def get_cv_interpolation(self,interpolation):
+        else:
+            logger.error(f"Interpolation of this type is not supported")
+            raise ValueError(f"Interpolation of this type is not supported")
+    @ staticmethod
+    def get_pil_interpolation(interpolation):
         if interpolation=="nearest":
             return Image.NEAREST
         elif interpolation=="lanczos":
@@ -330,5 +343,29 @@ class RandomResize:
             return Image.BICUBIC
         elif interpolation=="area":
             return Image.BOX
+        else:
+            logger.error(f"Interpolation of this type is not supported")
+            raise ValueError(f"Interpolation of this type is not supported")
+# 固定比例修改形状
+class Resize(RandomResize):
+    def __init__(self, rate=1.0, interp='bilinear'):
+        super().__init__(rate,interp)
+    def __call__(self, clip):
+        scaling_factor = self.rate
+        if isinstance(clip[0], np.ndarray):
+            image_height, image_width, im_channel = clip[0].shape
+        elif isinstance(clip[0], Image.Image):
+            image_width, image_height = clip[0].size
+        else:
+            logger.error(f"Only support numpy.ndarray or PIL.Image.Image!")
+            raise ValueError(f"Only support numpy.ndarray or PIL.Image.Image!")
+        alter_width = int(image_width * scaling_factor)
+        alter_height = int(image_height * scaling_factor)
+        new_size = (alter_width, alter_height)
+        if isinstance(clip[0], np.ndarray):
+            return [np.array(Image.fromarray(img).resize(size=new_size,resample=self.get_pil_interpolation(self.interpolation))) for img in clip]
+        else:
+            # np.array会自动的把(width,height)转化为(height,width,channel)
+            return [np.array(img.resize(size=new_size, resample=self.get_pil_interpolation(self.interpolation))) for img in clip]
 if __name__=="__main__":
     video=np.random.randn(5,255,255)
