@@ -81,7 +81,7 @@ def get_alignment(reference:List[str],hypothesis:List[str],distance:np.ndarray):
             reference_len=max(reference_len-1,0)
             hypothesis_len=max(hypothesis_len-1,0)
         # 如果是删除的情况，注意是在预测是的角度看来处理的
-        elif hypothesis_len-1>=1 and distance[reference_len,hypothesis_len]==distance[reference_len,hypothesis_len-1]+WER_COST_DEL:
+        elif hypothesis_len>=1 and distance[reference_len,hypothesis_len]==distance[reference_len,hypothesis_len-1]+WER_COST_DEL:
             align_reference=" "+"*"*len(hypothesis[hypothesis_len-1])+align_reference
             align_hypothesis=" "+hypothesis[hypothesis_len-1]+align_hypothesis
             align_ment=" "+"D"+" "*(len(hypothesis[hypothesis_len-1])-1)+align_ment
@@ -89,7 +89,7 @@ def get_alignment(reference:List[str],hypothesis:List[str],distance:np.ndarray):
             reference_len=max(reference_len,0)
             hypothesis_len=max(hypothesis_len-1,0)
         # 添加的情况
-        elif reference_len-1>=1 and distance[reference_len,hypothesis_len]==distance[reference_len-1,hypothesis_len]+WER_COST_INS:
+        elif reference_len>=1 and distance[reference_len,hypothesis_len]==distance[reference_len-1,hypothesis_len]+WER_COST_INS:
             align_reference=" "+reference[reference_len-1]+align_reference
             align_hypothesis+" "+"*"*len(reference[reference_len-1])+align_hypothesis
             align_ment=" "+"I"+" "*(len(reference[reference_len-1])-1)+align_ment
@@ -97,8 +97,26 @@ def get_alignment(reference:List[str],hypothesis:List[str],distance:np.ndarray):
             reference_len=max(reference_len-1,0)
             hypothesis_len=max(hypothesis_len,0)
         # 替换的情况
-        elif reference_len-1>=1 and hypothesis_len-1>=0 and distance[reference_len,hypothesis_len]==distance[reference_len-1,hypothesis_len-1]+WER_COST_SUB:
-            pass
+        elif reference_len>=1 and hypothesis_len>=1 and distance[reference_len,hypothesis_len]==distance[reference_len-1,hypothesis_len-1]+WER_COST_SUB:
+            medium_len=max(len(reference[reference_len-1]),len(hypothesis[hypothesis_len-1]))
+            align_reference=" "+reference[reference_len-1].ljust(medium_len)+align_reference
+            align_hypothesis=" "+hypothesis[hypothesis_len-1].ljust(medium_len)+align_hypothesis
+            align_ment=" "+"S"+" "*(medium_len-1)+align_ment
+            align_list.append("S")
+    # 删除多余的空格
+    align_reference=align_reference[1:]
+    align_hypothesis=align_hypothesis[1:]
+    align_ment=align_ment[1:]
+    # 将align_list倒置
+    align_list=align_list[::-1]
+    return (
+        align_list,
+        {
+            "align_reference":align_reference,
+            "align_hypothesis":align_hypothesis,
+            "align_ment":align_ment,
+        }
+    )
 if __name__=="__main__":
     # reference=["我","是","谁","她","不","人"]
     # hypothesis=["我","是","谁","她","不","是","人"]
