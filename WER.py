@@ -7,6 +7,10 @@ WER_COST_SUB = 1 # 替换的代价
 
 # 具体代码可以参考 https://github.com/zszyellow/WER-in-python/blob/master/wer.py
 
+# 相关论文可以参考 1. https://arxiv.org/pdf/2211.16112 2. https://aclanthology.org/P18-2004.pdf
+# 3. https://www.isca-archive.org/interspeech_2008/park08b_interspeech.pdf?utm_source=chatgpt.com
+# 4. https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/0005632.pdf
+
 # 批量计算平均的WER、删除率、插入率、替换率。
 def wer_list(references:List[str], hypotheses:List[str]):
     r"""
