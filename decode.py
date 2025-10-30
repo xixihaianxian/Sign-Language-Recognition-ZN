@@ -56,9 +56,26 @@ class Decode:
             raise ValueError(f"This decoding method was not found")
     # beam search 解码
     def beam_search(self,ctc_logits:torch.Tensor,vid_lgt:torch.Tensor,is_probability_distribution:bool=False):
+        # 对ctc_logits进行softmax
         if not is_probability_distribution:
             ctc_logits=F.softmax(ctc_logits,dim=-1)
-        pass
+        # 判断ctc_logits和vid_lgt所处设备
+        if ctc_logits.is_cuda:
+            ctc_logits=ctc_logits.to(device=torch.device("cpu"))
+        if vid_lgt.is_cuda:
+            vid_lgt=vid_lgt.to(device=torch.device("cpu"))
+        # 调用解码器
+        beam_result,beam_score,time_steps,out_seq_len=self.decoder.decode(ctc_logits,vid_lgt)
+        # beam_result 每一个样本在beam search中得到的若干候选序列
+        # beam_score 候选得分
+        # time_steps 每一个token在时间维度上的起始帧
+        # 每一个后选序列的有效长度
+        for batch_index in range(len(ctc_logits)):
+            first_result=beam_result[batch_index][0][:out_seq_len[batch_index][0]]
+            if len(first_result)!=0:
+                first_result=torch.stack([item[0] for item in groupby(first_result)])
+            # 将索引转化为标签文字
+            tem=[(self.id2gloss[gloss_id],index) for index,gloss_id in enumerate(first_result)]
     # max search 解码（贪心）
     def max_search(self,ctc_logits:torch.Tensor,vid_lgt:torch.Tensor):
         pass
