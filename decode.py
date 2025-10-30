@@ -56,6 +56,9 @@ class Decode:
             raise ValueError(f"This decoding method was not found")
     # beam search 解码
     def beam_search(self,ctc_logits:torch.Tensor,vid_lgt:torch.Tensor,is_probability_distribution:bool=False):
+        # 收集每个样本的decode结果
+        decoded_batch=list()
+        first_result=None
         # 对ctc_logits进行softmax
         if not is_probability_distribution:
             ctc_logits=F.softmax(ctc_logits,dim=-1)
@@ -69,16 +72,30 @@ class Decode:
         # beam_result 每一个样本在beam search中得到的若干候选序列
         # beam_score 候选得分
         # time_steps 每一个token在时间维度上的起始帧
-        # 每一个后选序列的有效长度
+        # out_seq_len 每一个后选序列的有效长度
         for batch_index in range(len(ctc_logits)):
             first_result=beam_result[batch_index][0][:out_seq_len[batch_index][0]]
             if len(first_result)!=0:
                 first_result=torch.stack([item[0] for item in groupby(first_result)])
             # 将索引转化为标签文字
-            tem=[(self.id2gloss[gloss_id],index) for index,gloss_id in enumerate(first_result)]
+            tmp=[(self.id2gloss[int(gloss_id)],index) for index,gloss_id in enumerate(first_result)]
+            # 判断tmp是否为空
+            if len(tmp)!=0:
+                decoded_batch.append(tmp)
+            else:
+                try:
+                    # 如果decode结果为空，将上一个样本的decode结果加入到容器中
+                    decoded_batch.append(decoded_batch[-1])
+                except Exception as error:
+                    logger.warning(f"decoded batch len is {len(decoded_batch)}")
+                    decoded_batch.append([("EMPTY", 0)])
+        return decoded_batch,first_result
     # max search 解码（贪心）
     def max_search(self,ctc_logits:torch.Tensor,vid_lgt:torch.Tensor):
-        pass
+        decoded_batch=list()
+        goal_index=torch.argmax(ctc_logits,dim=2)
+        for batch_index in range(len(ctc_logits)):
+            pass
 if __name__=="__main__":
     gloss_dict={
         "<blank>": 0,
