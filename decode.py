@@ -5,7 +5,7 @@ from torch.nn import functional as F
 from six.moves import xrange
 from torch import nn
 from collections import defaultdict
-from typing import Dict
+from typing import Dict,List
 from loguru import logger
 
 # 负责把模型输出(CTC logits)转化为可读的序列
@@ -39,7 +39,7 @@ class Decode:
     # 解码
     def decode(self,ctc_logits:torch.Tensor,vid_lgt:torch.Tensor,batch_first:bool=False,is_probability_distribution:bool=False):
         r"""
-        ctc_logits: 模型的输出张量，一般是没有经过softmax的
+        ctc_logits: 模型的输出张量，一般是没有经过softmax的。形状(B,T,N)
         vid_lgt: 每一个样本的有效帧长度
         batch_first: batch是否位于张量的首位
         is_probability_distribution: 是否已经经过概率分布处理
@@ -95,16 +95,101 @@ class Decode:
         decoded_batch=list()
         goal_index=torch.argmax(ctc_logits,dim=2)
         for batch_index in range(len(ctc_logits)):
-            pass
+            group_result=[item[0] for item in groupby(goal_index[batch_index][:vid_lgt[batch_index]])]
+            filtered=[item for item in group_result if item != self.blank_id]
+            if len(filtered)>0:
+                max_result=torch.stack(filtered)
+                # max_result=torch.tensor(filtered)
+                max_result=[item[0] for item in groupby(max_result)]
+            else:
+                max_result=filtered
+            decoded_batch.append([(self.id2gloss.get(int(item)),index) for index,item in enumerate(max_result)])
+        return decoded_batch
+# 计算前向对数似然
+def ctc_loss(log_probs,targets,input_lengths,target_lengths,blank=0):
+    r"""
+    计算前向对数似然
+    Args
+        log_probs: 模型输出的对数概率
+        targets: 拼接好的所有样本目标标签
+        input_lengths: 每个样本的输入序列长度
+        target_lengths: 每个样本的目标序列长度
+        blank: 空白符索引
+    """
+    # 获取批量大小
+    batch_size=len(target_lengths)
+    n=0
+    for batch_index in range(batch_size):
+        # 目标序列长度
+        seq_len=target_lengths[batch_index]
+        extend_target_seq_len=2*seq_len+1
+        # 输入序列长度
+        input_seq_len=input_lengths[batch_index]
+        # 建立alphas，前向概率表
+        alphas=torch.zeros(size=(extend_target_seq_len,input_seq_len))
+        # 建立betas，后向概率表
+        betas=torch.zeros(size=(extend_target_seq_len,input_seq_len))
+        # 对log_probs进行softmax
+        log_probs=torch.softmax(log_probs,dim=-1)
+        # 初始化
+        alphas[0,0]=log_probs[0,batch_index,blank]
+        alphas[1,0]=log_probs[0,batch_index,targets[n]]
+        # 归一化系数
+        normalization_constant=torch.sum(alphas[:,0])
+        alphas[:,0]=alphas[:,0]/normalization_constant
+        llForward=torch.log(normalization_constant)
+        # 使用xrange减小内存的消耗
+        for t in xrange(1,input_seq_len):
+            # t时间步只有[start,end]这些状态是可能的
+            start=max(0,extend_target_seq_len-2*(input_seq_len-t))
+            end=min(2*t+2,extend_target_seq_len)
+            for s in xrange(start,extend_target_seq_len):
+                label=int((s-1)/2)
+                # 如果s是偶数
+                if s%2==0:
+                    if s==0:
+                        alphas[s,t]=alphas[s,t-1]*log_probs[t,batch_index,blank]
+                    else:
+                        alphas[s, t] = (alphas[s, t - 1] + alphas[s - 1, t - 1]) * log_probs[t, batch_index, blank]
+                # s=1且label和前一个label相同
+                elif s==1 or targets[label]==targets[label-1]:
+                    alphas[s,t]=(alphas[s,t-1]+alphas[s-1,t-1])*log_probs[t,batch_index,targets[label]]
+                else:
+                    alphas[s,t]=(alphas[s,t-1]+alphas[s-1,t-1]+alphas[s-2,t-1])*log_probs[t,batch_index,targets[label]]
+                pass
 if __name__=="__main__":
-    gloss_dict={
-        "<blank>": 0,
-        "我": 1,
-        "是": 2,
-        "学": 3,
-        "生": 4,
-        "老": 5,
-        "师": 6
-    }
-    decode=Decode(gloss_dict,7,"beam")
-    print(decode.decoder)
+    # gloss_dict = {"blank": 0, "hello": 1, "world": 2, "goodbye": 3}
+    # ctc_logits = torch.tensor([
+    #     [  # 样本 1
+    #         [2.0, 5.0, 0.5, 0.2],
+    #         [1.0, 4.5, 0.3, 0.1],
+    #         [0.2, 0.1, 6.0, 0.4],
+    #         [0.3, 0.2, 5.5, 0.1],
+    #         [0.1, 0.2, 0.3, 0.1],
+    #         [3.0, 0.5, 0.2, 0.1],
+    #         [2.5, 0.3, 0.2, 0.1],
+    #         [1.0, 5.0, 0.3, 0.1],
+    #         [0.1, 0.2, 6.0, 0.1],
+    #         [0.3, 0.1, 5.5, 0.2],
+    #     ],
+    #     [  # 样本 2
+    #         [3.0, 0.1, 0.2, 5.0],
+    #         [2.5, 0.2, 0.3, 4.5],
+    #         [0.1, 0.2, 6.0, 0.2],
+    #         [0.3, 0.1, 5.5, 0.3],
+    #         [1.0, 5.0, 0.3, 0.1],
+    #         [0.1, 0.3, 0.2, 0.2],
+    #         [2.0, 4.5, 0.3, 0.1],
+    #         [0.1, 0.2, 6.0, 0.2],
+    #         [0.3, 0.1, 5.5, 0.3],
+    #         [0.1, 0.2, 0.3, 0.1],
+    #     ]
+    # ])
+    #
+    # vid_lgt = torch.IntTensor([10, 10])
+    # decode=Decode(gloss_dict,len(gloss_dict),"beam")
+    # beam_search=decode.beam_search(ctc_logits,vid_lgt)
+    # max_result=decode.max_search(ctc_logits, vid_lgt)
+    # print(beam_search)
+    # print(max_result)
+    pass
