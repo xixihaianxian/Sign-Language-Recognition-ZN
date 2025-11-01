@@ -119,6 +119,9 @@ def ctc_loss(log_probs,targets,input_lengths,target_lengths,blank=0):
     # 获取批量大小
     batch_size=len(target_lengths)
     n=0
+    # 初始化
+    llForward=0
+    input_length_sum=0
     for batch_index in range(batch_size):
         # 目标序列长度
         seq_len=target_lengths[batch_index]
@@ -156,7 +159,12 @@ def ctc_loss(log_probs,targets,input_lengths,target_lengths,blank=0):
                     alphas[s,t]=(alphas[s,t-1]+alphas[s-1,t-1])*log_probs[t,batch_index,targets[label]]
                 else:
                     alphas[s,t]=(alphas[s,t-1]+alphas[s-1,t-1]+alphas[s-2,t-1])*log_probs[t,batch_index,targets[label]]
-                pass
+            normalization_constant=torch.sum(alphas[start:end,t])
+            alphas[start:end,t]=alphas[start:end,t]/normalization_constant
+            llForward+=torch.log(normalization_constant)
+        n+=target_lengths[batch_index]
+        input_length_sum=torch.sum(input_lengths)
+    return llForward/input_length_sum
 if __name__=="__main__":
     # gloss_dict = {"blank": 0, "hello": 1, "world": 2, "goodbye": 3}
     # ctc_logits = torch.tensor([
@@ -192,4 +200,33 @@ if __name__=="__main__":
     # max_result=decode.max_search(ctc_logits, vid_lgt)
     # print(beam_search)
     # print(max_result)
-    pass
+    batch_size = 2
+    T_max = 5
+    vocab_size = 4
+    blank = 0
+    log_probs = torch.tensor([
+        [
+            [0.1, 0.6, 0.2, 0.1],
+            [0.3, 0.3, 0.2, 0.2],
+        ],
+        [
+            [0.7, 0.1, 0.1, 0.1],
+            [0.25, 0.25, 0.25, 0.25],
+        ],
+        [
+            [0.1, 0.2, 0.6, 0.1],
+            [0.4, 0.2, 0.2, 0.2],
+        ],
+        [
+            [0.25, 0.25, 0.25, 0.25],
+            [0.1, 0.6, 0.2, 0.1],
+        ],
+        [
+            [0.4, 0.3, 0.2, 0.1],
+            [0.5, 0.1, 0.3, 0.1],
+        ]
+    ], dtype=torch.float32)
+    targets = torch.tensor([1, 2, 1, 1, 2], dtype=torch.long)
+    input_lengths = torch.tensor([5, 5], dtype=torch.long)
+    target_lengths = torch.tensor([2, 3], dtype=torch.long)
+    print(ctc_loss(log_probs, targets, input_lengths, target_lengths))
