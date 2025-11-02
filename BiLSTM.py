@@ -31,7 +31,7 @@ class BiLSTMLayer(nn.Module):
             dropout=self.dropout,
             bidirectional=self.bidirectional
         )
-    def froward(self,src_features:torch.Tensor,src_lens:torch.Tensor,hidden:torch.Tensor=None):
+    def forward(self,src_features:torch.Tensor,src_lens:torch.Tensor,hidden:torch.Tensor=None):
         r"""
         Args
         src_features:（时间步长，批量大小，特征维度）
@@ -42,10 +42,43 @@ class BiLSTMLayer(nn.Module):
         packed_embedding=nn.utils.rnn.pack_padded_sequence(src_features,src_lens)
         # 防止提前就设置好hidden，但是hidden不符合LSTM需求的情况
         if hidden is not None and self.rnn_type=="LSTM" and not isinstance(hidden,tuple):
-            split=round(hidden.size(0)/2)
+            split=int(hidden.size(0)/2)
             hidden=hidden[:split]
             cell=hidden[split:]
             hidden=(hidden,cell)
         # 将参数加入到模型
         packed_outputs,hidden=self.rnn(packed_embedding,hidden)
+        # 经过模型训练之后hidden的形状为(num_layers*bidirectional,batch_size,hidden_size),
+        # cell_hidden的shape同理
         rnn_outputs,_=nn.utils.rnn.pad_packed_sequence(packed_outputs)
+        if self.bidirectional:
+            hidden=self.cat_directions(hidden)
+        if isinstance(hidden,tuple):
+            hidden=torch.cat(hidden,0)
+        return {
+            "predictions":rnn_outputs,
+            "hidden":hidden,
+        }
+    # 改变hidden的形状，将(num_layers*bidirectional,batch_size,hidden_size)转化为
+    # (num_layers,batch_size,hidden_size*bidirectional)
+    def cat_directions(self,hidden:torch.Tensor):
+        r"""
+        hidden经过循环神经网络计算得到的隐藏状态，这里需要对这个隐藏状态进行形状上的处理
+        """
+        def _cat(h:torch.Tensor):
+            return torch.cat([h[0:h.size(0):2],h[1:h.size(0):2]],dim=2)
+        if isinstance(hidden,tuple):
+            return tuple([_cat(h) for h in hidden])
+        else:
+            return _cat(hidden)
+if __name__=="__main__":
+    # batch_size = 4
+    # seq_len = 10
+    # embedding_size = 128
+    # hidden_size = 256
+    # src_features = torch.randn(seq_len, batch_size, embedding_size)
+    # src_lens = torch.tensor([10, 8, 6, 4])
+    # init_hidden = None
+    # bilstm=BiLSTMLayer(embedding_size, hidden_size)
+    # print(bilstm(src_features,src_lens,init_hidden)["hidden"].shape)
+    pass
