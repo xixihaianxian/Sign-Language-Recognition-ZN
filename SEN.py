@@ -79,19 +79,71 @@ class SSEM(nn.Module):
         return y
 # 残差块
 class BasicBlock(nn.Module):
-    def __init__(self):
+    expansion=1
+    def __init__(self,in_channels,middle_channels,stride=1,downsample=None):
         super().__init__()
-    def forward(self):
-        pass
-
+        # 设置第一个三维卷积
+        self.conv3d_1=conv3x3(in_channels=in_channels,out_channels=middle_channels,stride=stride)
+        self.bn_1=nn.BatchNorm3d(middle_channels)
+        # 设置第二个三维卷积
+        self.conv3d_2=conv3x3(in_channels=middle_channels,out_channels=middle_channels)
+        self.bn_2=nn.BatchNorm3d(middle_channels)
+        self.relu=nn.ReLU(inplace=True)
+        self.downsample=downsample # 可选下采样模块
+        # 增强模块
+        self.tsem=TSEM(middle_channels)
+        self.ssem=SSEM(middle_channels)
+        # 默认下采样
+        self.default_downsample=conv3x3(in_channels=in_channels,out_channels=middle_channels,stride=stride)
+    def forward(self,x:torch.Tensor):
+        residual = x
+        y=self.conv3d_1(x)
+        y=self.bn_1(y)
+        y=self.relu(y)
+        y=y+self.tsem(y)+self.ssem(y)
+        y=self.conv3d_2(y)
+        y=self.bn_2(y)
+        if self.downsample is not None:
+            residual=self.downsample(residual)
+        else:
+            logger.warning(f"Recommendation settings downsample!")
+            residual=self.default_downsample(residual)
+        y+=residual
+        y=self.relu(y)
+        return y
 # 构建ResNet主网络
 class ResNet(nn.Module):
-    def __init__(self):
+    def __init__(self,block,layers,num_classes=1000,in_channels=None):
         super().__init__()
+        self.in_channels=in_channels if in_channels is not None else 64 # 初始化通道数
+        self.conv3d_1=nn.Conv3d(in_channels=3,out_channels=64,kernel_size=(1,7,7),stride=(1,2,2),padding=(0,3,3),bias=False)
+        self.bn_1=nn.BatchNorm3d(num_features=64)
+        self.relu=nn.ReLU(inplace=True)
+        self.maxpool=nn.MaxPool3d(kernel_size=(1,3,3),stride=(1,2,2),padding=(0,1,1))
+    # 内部构造残差层
+    def make_layers(self,block:BasicBlock,planes,blocks,stride=1):
+        r"""
+        用blocks个block来构造的残差模块
+        """
+        downsample=None
+        if stride != 1 or self.in_channels!=planes*block.expansion:
+            downsample=nn.Sequential(
+                nn.Conv3d(in_channels=self.in_channels,out_channels=planes*block.expansion,kernel_size=(1,1,1),stride=(1,stride,stride),bias=False),
+                nn.BatchNorm3d(planes*block.expansion)
+            )
+        layers=list()
+        layers.append(block(in_channels=self.in_channels,middle_channels=planes,stride=stride,downsample=downsample))
+        self.in_channels=planes*block.expansion
+        for _ in range(1,blocks):
+            layers.append(block(in_channels=self.in_channels,middle_channels=planes))
+        layers=nn.Sequential(*layers)
+        return layers
     def forward(self):
         pass
 if __name__=="__main__":
-    x=torch.randn(size=(4,128,120,64,64))
-    tsem=TSEM(input_channels=128)
-    ssem=SSEM(in_channels=128)
-    print(ssem(x).shape)
+    x=torch.randn(size=(1,128,50,64,64))
+    # tsem=TSEM(input_channels=128)
+    # ssem=SSEM(in_channels=128)
+    # print(ssem(x).shape)
+    basicblock=BasicBlock(in_channels=128,middle_channels=64)
+    print(basicblock(x).shape)
