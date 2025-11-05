@@ -14,7 +14,6 @@ def conv3x3(in_channels, out_channels, stride=1, bias=False):
         padding=(0,1,1),
         bias=bias
     )
-
 # 时间增强模块
 class TSEM(nn.Module):
     r"""
@@ -80,21 +79,25 @@ class SSEM(nn.Module):
 # 残差块
 class BasicBlock(nn.Module):
     expansion=1
-    def __init__(self,in_channels,middle_channels,stride=1,downsample=None):
+    def __init__(self,in_channels,middle_channels,stride=1,downsample=None,use_default_downsample=False):
         super().__init__()
         # 设置第一个三维卷积
         self.conv3d_1=conv3x3(in_channels=in_channels,out_channels=middle_channels,stride=stride)
         self.bn_1=nn.BatchNorm3d(middle_channels)
         # 设置第二个三维卷积
-        self.conv3d_2=conv3x3(in_channels=middle_channels,out_channels=middle_channels)
-        self.bn_2=nn.BatchNorm3d(middle_channels)
+        self.conv3d_2=conv3x3(in_channels=middle_channels,out_channels=middle_channels*self.expansion)
+        self.bn_2=nn.BatchNorm3d(middle_channels*self.expansion)
         self.relu=nn.ReLU(inplace=True)
         self.downsample=downsample # 可选下采样模块
         # 增强模块
         self.tsem=TSEM(middle_channels)
         self.ssem=SSEM(middle_channels)
         # 默认下采样
-        self.default_downsample=conv3x3(in_channels=in_channels,out_channels=middle_channels,stride=stride)
+        self.use_default_downsample=use_default_downsample
+        self.default_downsample=nn.Sequential(
+            conv3x3(in_channels=in_channels,out_channels=middle_channels,stride=stride),
+            nn.BatchNorm3d(middle_channels)
+        )
     def forward(self,x:torch.Tensor):
         residual = x
         y=self.conv3d_1(x)
@@ -102,26 +105,39 @@ class BasicBlock(nn.Module):
         y=self.relu(y)
         y=y+self.tsem(y)+self.ssem(y)
         y=self.conv3d_2(y)
-        y=self.bn_2(y)
+        y=self.bn_2(y) # y此时的通道数是middle_channels*expansion
+        # 没变换前的residual保持着原来的通道数
         if self.downsample is not None:
+            # 变换之后residual的通道数应该和y保持相同
             residual=self.downsample(residual)
-        else:
+        elif self.downsample is None and self.use_default_downsample:
             logger.warning(f"Recommendation settings downsample!")
             residual=self.default_downsample(residual)
         y+=residual
         y=self.relu(y)
+        # 测此时输出的y的通道数应该是middle_channels*expansion
         return y
 # 构建ResNet主网络
 class ResNet(nn.Module):
-    def __init__(self,block,layers,num_classes=1000,in_channels=None):
+    def __init__(self,block,layers:List[int],num_classes:int=1000,in_channels=None):
         super().__init__()
         self.in_channels=in_channels if in_channels is not None else 64 # 初始化通道数
         self.conv3d_1=nn.Conv3d(in_channels=3,out_channels=64,kernel_size=(1,7,7),stride=(1,2,2),padding=(0,3,3),bias=False)
         self.bn_1=nn.BatchNorm3d(num_features=64)
         self.relu=nn.ReLU(inplace=True)
         self.maxpool=nn.MaxPool3d(kernel_size=(1,3,3),stride=(1,2,2),padding=(0,1,1))
+        self.layer1=self.make_layer(block,planes=64,blocks=layers[0]) # 样本的height和width和seq_len都不发生改变，只有通道数发生了改变
+        self.layer2=self.make_layer(block,planes=128,blocks=layers[1],stride=2)
+        self.layer3=self.make_layer(block,planes=256,blocks=layers[2],stride=2)
+        self.layer4=self.make_layer(block,planes=512,blocks=layers[3],stride=2)
+        # 期望目标是（batch_size，channels，height，width）
+        self.avgpool=nn.AvgPool2d(kernel_size=7,stride=1)
+        self.fc=nn.Linear(in_features=512*block.expansion,out_features=num_classes)
+        # 对模块进行初始化
+        for module in self.modules(): # 递归返回所有层包括自身
+            pass
     # 内部构造残差层
-    def make_layers(self,block:BasicBlock,planes,blocks,stride=1):
+    def make_layer(self,block:BasicBlock,planes,blocks,stride=1):
         r"""
         用blocks个block来构造的残差模块
         """
@@ -133,9 +149,12 @@ class ResNet(nn.Module):
             )
         layers=list()
         layers.append(block(in_channels=self.in_channels,middle_channels=planes,stride=stride,downsample=downsample))
-        self.in_channels=planes*block.expansion
+        # 经过一些列的计算之后，截止上一步，y的通道数是planes*expansion
+        self.in_channels=planes*block.expansion # 此时把下一层的in_channels变为planes*expansion来对应上一层的y的通道数
         for _ in range(1,blocks):
+            # 其实这里self.in_channels和之后输出的通道数数量是相同的
             layers.append(block(in_channels=self.in_channels,middle_channels=planes))
+            # 输出的通道数仍然是planes*expansion，即使不添加downsample也不会有任何影响！！！
         layers=nn.Sequential(*layers)
         return layers
     def forward(self):
@@ -145,5 +164,5 @@ if __name__=="__main__":
     # tsem=TSEM(input_channels=128)
     # ssem=SSEM(in_channels=128)
     # print(ssem(x).shape)
-    basicblock=BasicBlock(in_channels=128,middle_channels=64)
-    print(basicblock(x).shape)
+    # basicblock=BasicBlock(in_channels=128,middle_channels=64,use_default_downsample=True,stride=2)
+    # print(basicblock(x).shape)
