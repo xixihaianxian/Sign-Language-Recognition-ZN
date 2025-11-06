@@ -3,6 +3,13 @@ from torch import nn
 from torchvision import models
 from typing import List
 from loguru import logger
+from torch.hub import load_state_dict_from_url
+
+# 模型下载地址
+model_urls = {
+    'resnet18': 'https://download.pytorch.org/models/resnet18-f37072fd.pth',
+    'resnet34': 'https://download.pytorch.org/models/resnet34-333f7ec4.pth',
+}
 
 # 只在空间（H,W）做 3×3 卷积，时间维度（T）保持不变
 def conv3x3(in_channels, out_channels, stride=1, bias=False):
@@ -187,7 +194,30 @@ class ResNet(nn.Module):
         y=self.flatten(y)
         y=self.fc(y)
         return y
+# 登录resnet18的预训练参数
+def resnet18(model_dir=None,**kwargs):
+    custom_model = ResNet(BasicBlock, [2, 2, 2, 2],**kwargs)
+    model_dir="/mnt/e/Sign-Language-Recognition-ZN/resnet" if model_dir is None else model_dir
+    # 获取resnet18的状态字典
+    resnet_state_dict=load_state_dict_from_url(url=model_urls.get("resnet18"),model_dir=model_dir,file_name="resnet18.pth")
+    for name,param in resnet_state_dict.items():
+        if 'conv' in name or 'downsample.0.weight' in name:
+            resnet_state_dict.update({name:resnet_state_dict.get(name).unsqueeze(2)})
+    custom_model.load_state_dict(resnet_state_dict,strict=False)
+    return custom_model
+# 登录resnet34的预训练参数
+def resnet34(model_dir=None,**kwargs):
+    custom_model=ResNet(BasicBlock, [3, 4, 6, 3], **kwargs)
+    model_dir="/mnt/e/Sign-Language-Recognition-ZN/resnet" if model_dir is None else model_dir
+    # 获取resnet34状态字典
+    resnet34_state_dict=load_state_dict_from_url(url=model_urls.get("resnet34"),model_dir=model_dir,file_name="resnet34.pth")
+    for name,param in resnet34_state_dict.items():
+        if "conv" in name or "downsample.0.weight" in name:
+            resnet34_state_dict.update({name:resnet34_state_dict.get(name).unsqueeze(2)})
+    custom_model.load_state_dict(resnet34_state_dict,strict=False)
+    return custom_model
 if __name__=="__main__":
-    x=torch.randn(size=(5,3,20,224,224))
-    resnet=ResNet(block=BasicBlock,layers=[1,2,3,4])
-    print(resnet(x).shape)
+    # x=torch.randn(size=(5,3,20,224,224))
+    # resnet=ResNet(block=BasicBlock,layers=[1,2,3,4])
+    # print(resnet(x).shape)
+    print(resnet34())
