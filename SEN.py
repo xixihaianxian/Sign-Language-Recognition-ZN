@@ -119,6 +119,11 @@ class BasicBlock(nn.Module):
         return y
 # 构建ResNet主网络
 class ResNet(nn.Module):
+    r"""
+    1.in_channels不要随便更改
+    2.in_channels不是输入样本的通道数
+    3.输入样本的通道数需要保持为3
+    """
     def __init__(self,block,layers:List[int],num_classes:int=1000,in_channels=None):
         super().__init__()
         self.in_channels=in_channels if in_channels is not None else 64 # 初始化通道数
@@ -133,9 +138,15 @@ class ResNet(nn.Module):
         # 期望目标是（batch_size，channels，height，width）
         self.avgpool=nn.AvgPool2d(kernel_size=7,stride=1)
         self.fc=nn.Linear(in_features=512*block.expansion,out_features=num_classes)
+        # 用于把张量展平
+        self.flatten=nn.Flatten()
         # 对模块进行初始化
         for module in self.modules(): # 递归返回所有层包括自身
-            pass
+            if isinstance(module,nn.Conv3d) or isinstance(module,nn.Conv2d):
+                nn.init.kaiming_normal_(module.weight,mode="fan_out",nonlinearity="relu")
+            elif isinstance(module,nn.BatchNorm3d) or isinstance(module,nn.BatchNorm2d):
+                nn.init.constant_(module.weight,1)
+                nn.init.constant_(module.bias,0)
     # 内部构造残差层
     def make_layer(self,block:BasicBlock,planes,blocks,stride=1):
         r"""
@@ -157,12 +168,26 @@ class ResNet(nn.Module):
             # 输出的通道数仍然是planes*expansion，即使不添加downsample也不会有任何影响！！！
         layers=nn.Sequential(*layers)
         return layers
-    def forward(self):
-        pass
+    def forward(self,x:torch.Tensor):
+        r"""
+        输入的x形状保证是(batch_size,channels,seq_len,height,width)
+        """
+        batch_size,channels,sequence_len,height,width=x.size()
+        y=self.conv3d_1(x) # (batch_size,64,sequence_len,(height-1)2+1,(width-1)/2+1)
+        y=self.bn_1(y)
+        y=self.relu(y)
+        y=self.maxpool(y) # (batch_size,64,sequence_len,(height-1)/2+1,(width-1)/2+1)
+        y=self.layer1(y)
+        y=self.layer2(y)
+        y=self.layer3(y)
+        y=self.layer4(y)
+        y=y.transpose(1,2).contiguous()
+        y=y.view((-1,)+y.size()[2:])
+        y=self.avgpool(y)
+        y=self.flatten(y)
+        y=self.fc(y)
+        return y
 if __name__=="__main__":
-    x=torch.randn(size=(1,128,50,64,64))
-    # tsem=TSEM(input_channels=128)
-    # ssem=SSEM(in_channels=128)
-    # print(ssem(x).shape)
-    # basicblock=BasicBlock(in_channels=128,middle_channels=64,use_default_downsample=True,stride=2)
-    # print(basicblock(x).shape)
+    x=torch.randn(size=(5,3,20,224,224))
+    resnet=ResNet(block=BasicBlock,layers=[1,2,3,4])
+    print(resnet(x).shape)
