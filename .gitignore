@@ -9,5 +9,5 @@
 .idea/
 CE-CSL/
 data/
-resnet/resnet18.pth
-resnet/resnet34.pth
+resnet/resnet18.pth/
+resnet/resnet34.pth/
