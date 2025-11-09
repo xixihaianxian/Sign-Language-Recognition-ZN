@@ -5,6 +5,7 @@ import copy
 from loguru import logger
 from typing import List
 import math
+from loguru import logger
 
 model_urls = {
     'resnet18': 'https://download.pytorch.org/models/resnet18-f37072fd.pth',
@@ -161,23 +162,168 @@ class BasicBlock(nn.Module):
 class GetCorrelation(nn.Module):
     def __init__(self,channels):
         super().__init__()
+        # 判断channels是否合理
+        if 0<=channels<16:
+            logger.warning(f"channels的大小似乎不太合理，请检查channels的大小!")
+        elif channels<0:
+            logger.error(f"channels不能为负数！")
+            raise ValueError(f"channels不能为负数！")
+        # 计算中间层的通道数
         reduction_channels=math.floor(channels//16)
         # 只改变通道数
         self.down_conv3d_1=nn.Conv3d(in_channels=channels,out_channels=reduction_channels,kernel_size=1,bias=False)
         self.down_conv3d_2=nn.Conv3d(in_channels=channels,out_channels=channels,kernel_size=1,bias=False)
         # 深度可分卷积，减少计算量
         self.spatial_aggregation_1=nn.Conv3d(in_channels=reduction_channels,out_channels=reduction_channels,kernel_size=(9,3,3),padding=(4,1,1),groups=reduction_channels)
+        self.spatial_aggregation_2 = nn.Conv3d(in_channels=reduction_channels, out_channels=reduction_channels, kernel_size=(9, 3, 3), padding=(4, 2, 2), dilation=(1, 2, 2), groups=reduction_channels)
+        self.spatial_aggregation_3 = nn.Conv3d(in_channels=reduction_channels, out_channels=reduction_channels, kernel_size=(9, 3, 3), padding=(4, 3, 3), dilation=(1, 3, 3), groups=reduction_channels)
+        # 定义权重
+        self.weight_1=nn.Parameter(torch.ones(size=(3,))/3,requires_grad=True)
+        self.weight_2=nn.Parameter(torch.ones(size=(2,))/2,requires_grad=True)
+        # 使用3维卷积将通道数还原
+        self.conv3d_back=nn.Conv3d(in_channels=reduction_channels,out_channels=channels,kernel_size=1,bias=False)
+        self.sigmoid=nn.Sigmoid()
+    def forward(self,x:torch.Tensor):
+        x2=self.down_conv3d_2(x)
+        affinities_1=torch.einsum("bcthw,bctsd->bthwsd",x,torch.concat((x2[:,:,1:],x2[:,:,-1:]),dim=2)) # 重复最后一帧
+        affinities_2=torch.einsum("bcthw,bctsd->bthwsd",x,torch.concat((x2[:,:,:1],x2[:,:,:-1]),dim=2)) # 重复第一帧
+        term1=torch.einsum('bctsd,bthwsd->bcthw',
+                           torch.concat([x2[:, :, 1:], x2[:, :, -1:]], 2),
+                           self.sigmoid(affinities_1) - 0.5) * self.weight_2[0]
+        term2=torch.einsum("bctsd,bthwsd->bcthw",
+                           torch.concat([x2[:, :, :1], x2[:, :, :-1]], 2),
+                           self.sigmoid(affinities_2) - 0.5)*self.weight_2[1]
+        feature=term1+term2
+        y=self.down_conv3d_1(x)
+        aggregated_y=self.spatial_aggregation_1(y) * self.weight_1[0] + self.spatial_aggregation_2(y) * self.weight_1[1] + self.spatial_aggregation_3(y) * self.weight_1[2]
+        aggregated_y=self.conv3d_back(aggregated_y)
+        return feature*(self.sigmoid(aggregated_y)-0.5)
+
+# 构建ResNet模块（普通的ResNet）
+class ResNet(nn.Module):
+    def __init__(self, block, layers, num_classes=1000):
+        super().__init__()
+        self.in_channels = 64
+        self.conv3d_1 = nn.Conv3d(3, 64, kernel_size=(1, 7, 7), stride=(1, 2, 2), padding=(0, 3, 3), bias=False)
+        self.bn_1 = nn.BatchNorm3d(64)
+        self.relu = nn.ReLU(inplace=True)
+        self.maxpool = nn.MaxPool3d(kernel_size=(1, 3, 3), stride=(1, 2, 2), padding=(0, 1, 1))
+        self.layer_1 = self.make_layer(block, 64, layers[0])
+        self.layer_2 = self.make_layer(block, 128, layers[1], stride=2)
+        self.layer_3 = self.make_layer(block, 256, layers[2], stride=2)
+        self.layer_4 = self.make_layer(block, 512, layers[3], stride=2)
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Linear(512 * block.expansion, num_classes)
+        for module in self.modules():
+            if isinstance(module, nn.Conv3d) or isinstance(module, nn.Conv2d):
+                nn.init.kaiming_normal_(module.weight, mode='fan_out', nonlinearity='relu')
+            elif isinstance(module, nn.BatchNorm3d) or isinstance(module, nn.BatchNorm2d):
+                nn.init.constant_(module.weight, 1)
+                nn.init.constant_(module.bias, 0)
+    def make_layer(self, block, planes, blocks, stride=1):
+        downsample=None
+        if stride != 1 or self.in_channels != planes * block.expansion:
+            downsample = nn.Sequential(
+                nn.Conv3d(self.in_channels, planes * block.expansion,
+                          kernel_size=1, stride=(1, stride, stride), bias=False),
+                nn.BatchNorm3d(planes * block.expansion),
+            )
+        layers = list()
+        layers.append(block(self.in_channels, planes, stride, downsample))
+        self.in_channels = planes * block.expansion
+        for i in range(1, blocks):
+            layers.append(block(self.in_channels, planes))
+        return nn.Sequential(*layers)
+    def forward(self, x):
+        y = self.conv3d_1(x)
+        y = self.bn_1(y)
+        y = self.relu(y)
+        y = self.maxpool(y)
+        y = self.layer_1(y)
+        y = self.layer_2(y)
+        y = self.layer_3(y)
+        y = self.layer_4(y)
+        y = y.transpose(1, 2).contiguous()
+        y = y.view((-1,) + y.size()[2:])
+        y = self.avgpool(y)
+        y = y.view(y.size(0), -1)
+        y = self.fc(y)
+        return y
+
+# 融合帧间相关性的3D ResNet
+class ResNetCorr(nn.Module):
+    def __init__(self, block, layers, num_classes=1000):
+        super().__init__()
+        self.in_channels = 64
+        self.conv3d_1 = nn.Conv3d(3, 64, kernel_size=(1, 7, 7), stride=(1, 2, 2), padding=(0, 3, 3), bias=False)
+        self.bn_1 = nn.BatchNorm3d(64)
+        self.relu = nn.ReLU(inplace=True)
+        self.maxpool = nn.MaxPool3d(kernel_size=(1, 3, 3), stride=(1, 2, 2), padding=(0, 1, 1))
+        # 残差块堆叠make_layer
+        self.layer_1 = self.make_layer(block, 64, layers[0])
+        self.layer_2 = self.make_layer(block, 128, layers[1], stride=2)
+        # 计算时间相关性
+        self.corr_1 = GetCorrelation(self.in_channels)
+        self.layer_3 = self.make_layer(block, 256, layers[2], stride=2)
+        self.corr_2 = GetCorrelation(self.in_channels)
+        self.alpha = nn.Parameter(torch.zeros(3), requires_grad=True)
+        self.layer_4 = self.make_layer(block, 512, layers[3], stride=2)
+        self.corr_3 = GetCorrelation(self.in_channels)
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Linear(512 * block.expansion, num_classes)
+        for m in self.modules():
+            if isinstance(m, nn.Conv3d) or isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            elif isinstance(m, nn.BatchNorm3d) or isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+    def make_layer(self, block, planes, blocks, stride=1):
+        downsample = None
+        if stride != 1 or self.in_channels != planes * block.expansion:
+            downsample = nn.Sequential(
+                nn.Conv3d(self.in_channels, planes * block.expansion,
+                          kernel_size=1, stride=(1, stride, stride), bias=False),
+                nn.BatchNorm3d(planes * block.expansion),
+            )
+        layers = list()
+        layers.append(block(self.in_channels, planes, stride, downsample))
+        self.in_channels = planes * block.expansion
+        for i in range(1, blocks):
+            layers.append(block(self.in_channels, planes))
+        return nn.Sequential(*layers)
+    def forward(self, x):
+        y = self.conv3d_1(x)
+        y = self. bn_1(y)
+        y = self.relu(y)
+        y = self.maxpool(y)
+        y = self.layer_1(y)
+        y = self.layer_2(y)
+        y = y + self.corr_1(y) * self.alpha[0]
+        y = self.layer_3(y)
+        y = y + self.corr_2(y) * self.alpha[1]
+        y = self.layer_4(y)
+        y = y + self.corr_3(y) * self.alpha[2]
+        y = y.transpose(dim0=1, dim1=2).contiguous()
+        y = y.view((-1,) + y.size()[2:])
+        y = self.avgpool(y)
+        y = y.view(y.size(0), -1)
+        y = self.fc(y)
+        return y
+
+# 针对时间维度的注意力模块，增强输入增量在时间维度度上的重要性
+class MotorAttention(nn.Module):
+    def __init__(self,in_channels,hidden_channels):
+        super().__init__()
     def forward(self):
         pass
 
 if __name__=="__main__":
-    # batch_size = 2
-    # input_size = 64
-    # hidden_size = 128
-    # time_len = 50
-    # x = torch.randn(batch_size, input_size, time_len)
-    # lengths = torch.tensor([50,45])
-    # model = TemporalConv(input_size, hidden_size, convolution_type=2)
-    # output = model(x, lengths)
-    # print(output)
-    pass
+    batch_size = 2
+    channels = 3
+    frames = 16
+    height = 224
+    width = 224
+    x = torch.randn(batch_size, channels, frames, height, width)
+    model = ResNetCorr(block=BasicBlock, layers=[2, 2, 2, 2], num_classes=1000)
+    output = model(x)
+    print(output.shape)
