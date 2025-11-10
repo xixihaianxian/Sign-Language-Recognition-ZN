@@ -1,11 +1,12 @@
 import torch
+from pandas.core.indexers import unpack_tuple_and_ellipses
 from torch import nn
 import torch.nn.functional as F
 import copy
-from loguru import logger
 from typing import List
 import math
 from loguru import logger
+from torch.hub import load_state_dict_from_url
 
 model_urls = {
     'resnet18': 'https://download.pytorch.org/models/resnet18-f37072fd.pth',
@@ -310,20 +311,161 @@ class ResNetCorr(nn.Module):
         y = self.fc(y)
         return y
 
+# 在ResNet34的基础上加上多级运动的注意力机制
+class ResNet34MAM(nn.Module):
+    def __init__(self, block, layers, num_classes=1000):
+        super(ResNet34MAM, self).__init__()
+        self.in_channels = 64
+        self.motorAttention_1 = MotorAttention(3, 16)
+        self.conv3d_1 = nn.Conv3d(3, 64, kernel_size=(1, 7, 7), stride=(1, 2, 2), padding=(0, 3, 3),bias=False)
+        self.bn_1 = nn.BatchNorm3d(64)
+        self.relu = nn.ReLU(inplace=True)
+        self.maxpool = nn.MaxPool3d(kernel_size=(1, 2, 2), stride=(1, 2, 2))
+        self.layer_1 = self.make_layer(block, 64, layers[0])
+        self.motorAttention_2 = MotorAttention(64, 64)
+        self.layer_2 = self.make_layer(block, 128, layers[1], stride=2)
+        self.motorAttention_3 = MotorAttention(128, 64)
+        self.layer_3 = self.make_layer(block, 256, layers[2], stride=2)
+        self.motorAttention_4 = MotorAttention(256, 64)
+        self.layer_4 = self.make_layer(block, 512, layers[3], stride=2)
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Linear(512 * block.expansion, num_classes)
+        for module in self.modules():
+            if isinstance(module, nn.Conv3d) or isinstance(module, nn.Conv2d):
+                nn.init.kaiming_normal_(module.weight, mode='fan_out', nonlinearity='relu')
+            elif isinstance(module, nn.BatchNorm3d) or isinstance(module, nn.BatchNorm2d):
+                nn.init.constant_(module.weight, 1)
+                nn.init.constant_(module.bias, 0)
+    def make_layer(self, block, planes, blocks, stride=1):
+        downsample = None
+        if stride != 1 or self.in_channels != planes * block.expansion:
+            downsample = nn.Sequential(
+                nn.Conv3d(self.in_channels, planes * block.expansion,
+                          kernel_size=1, stride=(1, stride, stride), bias=False),
+                nn.BatchNorm3d(planes * block.expansion),
+            )
+        layers = list()
+        layers.append(block(self.in_channels, planes, stride, downsample))
+        self.in_channels = planes * block.expansion
+        for i in range(1, blocks):
+            layers.append(block(self.in_channels,planes))
+        return nn.Sequential(*layers)
+    def forward(self, x):
+        out_data_1 = list()
+        out_data_2 = list()
+        out_data_3 = list()
+        out = self.motorAttention_1(x)
+        out = self.conv3d_1(out)
+        out = self.bn_1(out)
+        out = self.relu(out)
+        out = self.maxpool(out)
+        out = self.layer_1(out)
+        out = self.motorAttention_2(out)
+        out_data_1.append(out)
+        out = self.layer_2(out)
+        out = self.motorAttention_3(out)
+        out_data_1.append(out)
+        out_data_2.append(out)
+        out = self.layer_3(out)
+        out = self.motorAttention_4(out)
+        out_data_2.append(out)
+        out_data_3.append(out)
+        out = self.layer_4(out)
+        out_data_3.append(out)
+        out = out.transpose(1, 2).contiguous()
+        out = out.view((-1,) + out.size()[2:])
+        out = self.avgpool(out)
+        out = out.view(out.size(0), -1)
+        out = self.fc(out)
+        return out, out_data_1, out_data_2, out_data_3
+
 # 针对时间维度的注意力模块，增强输入增量在时间维度度上的重要性
 class MotorAttention(nn.Module):
     def __init__(self,in_channels,hidden_channels):
         super().__init__()
-    def forward(self):
-        pass
+        kernel=3
+        padding=1
+        self.conv3d_1=nn.Conv3d(in_channels=in_channels,out_channels=hidden_channels,kernel_size=(kernel,1,1),stride=1,padding=(padding,0,0))
+        self.conv3d_2=nn.Conv3d(in_channels=hidden_channels,out_channels=hidden_channels,kernel_size=(kernel,1,1),stride=1,padding=(padding,0,0))
+        self.conv3d_3=nn.Conv3d(in_channels=hidden_channels,out_channels=hidden_channels,kernel_size=(kernel,1,1),stride=1,padding=(padding,0,0))
+        self.conv3d_4=nn.Conv3d(in_channels=hidden_channels,out_channels=in_channels,kernel_size=(kernel,1,1),stride=1,padding=(padding,0,0))
+        self.relu=nn.LeakyReLU(inplace=True)
+        self.sigmoid=nn.Sigmoid()
+    def forward(self,x:torch.Tensor):
+        y=self.conv3d_1(x)
+        y=self.relu(y)
+        y=self.conv3d_2(y)
+        y=self.relu(y)
+        y=self.conv3d_3(y)
+        y=self.relu(y)
+        y=self.conv3d_4(y)
+        y=self.sigmoid(y)
+        out=x*y
+        return out
+
+# 定义修饰器
+def resnet_loader(function):
+    r"""
+    用于自动加载resnet18的权重
+    """
+    def wrapper(*args,**kwargs):
+        custom_module:nn.Module=function(*args,**kwargs)
+        # 确定函数的名称
+        function_name=function.__name__
+        # 确定需要登录的模型名称
+        if function_name=="resnet34mam":
+            model_name="resnet34"
+        else:
+            model_name="resnet18"
+        module_url=model_urls.get(model_name)
+        # 判断resnet18或者resnet34是否存在
+        if module_url is None:
+            logger.error(f"{model_name} does not exist, please check the model urls!")
+            raise KeyError(f"{model_name} does not exist, please check the model urls!")
+        # 登录预训练模型参数
+        state_dict=load_state_dict_from_url(url=module_url,model_dir="resnet",file_name=f"{model_name}.pth")
+        for name,param in state_dict.items():
+            if "conv" in name or "downsample.0.weight" in name:
+                state_dict[name]=param.unsqueeze(2)
+        if function_name=="resnet34mam":
+            # 获取模型默认的参数
+            default_state_dict=custom_module.state_dict()
+            pretrained_dict={name:param for name,param in state_dict.items() if name in default_state_dict.keys()}
+            # 更新默认的参数
+            default_state_dict.update(pretrained_dict)
+            # 将更新之后的参数赋值给state_dict
+            state_dict=default_state_dict
+        # 登录预训练参数
+        custom_module.load_state_dict(state_dict,strict=False)
+        return custom_module
+    return wrapper
+
+# ResNet登录默认的resnet18参数
+@ resnet_loader
+def resnet18(**kwargs):
+    custom_module=ResNet(block=BasicBlock,layers=[2,2,2,2],**kwargs)
+    return custom_module
+
+# ResNetCorr登录默认的resnet18参数
+@ resnet_loader
+def resnet18corr(**kwargs):
+    custom_module=ResNetCorr(block=BasicBlock,layers=[2,2,2,2],**kwargs)
+    return custom_module
+
+# ResNet34MAM登录默认的resnet34参数
+@ resnet_loader
+def resnet34mam(**kwargs):
+    custom_module=ResNet34MAM(block=BasicBlock,layers=[3, 4, 6, 3],**kwargs)
+    return custom_module
 
 if __name__=="__main__":
-    batch_size = 2
-    channels = 3
-    frames = 16
-    height = 224
-    width = 224
-    x = torch.randn(batch_size, channels, frames, height, width)
-    model = ResNetCorr(block=BasicBlock, layers=[2, 2, 2, 2], num_classes=1000)
-    output = model(x)
-    print(output.shape)
+    # batch_size = 2
+    # channels = 3
+    # frames = 16
+    # height = 224
+    # width = 224
+    # x = torch.randn(batch_size, channels, frames, height, width)
+    # model = ResNet34MAM(block=BasicBlock,layers=[2,2,2,2])
+    # output = model(x)
+    # print(output[1])
+    print(resnet18()) # mam还没有测试
