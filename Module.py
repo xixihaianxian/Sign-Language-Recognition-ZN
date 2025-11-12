@@ -459,13 +459,12 @@ def resnet34mam(**kwargs):
     return custom_module
 
 if __name__=="__main__":
-    # batch_size = 2
-    # channels = 3
-    # frames = 16
-    # height = 224
-    # width = 224
-    # x = torch.randn(batch_size, channels, frames, height, width)
-    # model = ResNet34MAM(block=BasicBlock,layers=[2,2,2,2])
-    # output = model(x)
-    # print(output[1])
-    print(resnet18()) # mam还没有测试
+    batch_size = 2
+    channels = 3
+    frames = 16
+    height = 224
+    width = 224
+    x = torch.randn(batch_size, channels, frames, height, width)
+    model = ResNet34MAM(block=BasicBlock,layers=[2,2,2,2])
+    output = model(x)
+    print(output[1])
