@@ -49,7 +49,7 @@ class ScaledDotProductAttention(nn.Module):
 
 # 多头注意力机制
 class MultiHeadAttention(nn.Module):
-    def __init__(self,dim,head_number,dropout,relative_position_encoding_k):
+    def __init__(self,dim,head_number,dropout,relative_position_encoding_k=0):
         super().__init__()
         if dim%head_number!=0:
             logger.error(f"dim should be a multiple of head_number!")
@@ -64,7 +64,7 @@ class MultiHeadAttention(nn.Module):
             self.relative_position_encoding_w=nn.Embedding(num_embeddings=relative_position_encoding_k*2+1,embedding_dim=2*dim//self.n_head)
         self.scaled_attention=ScaledDotProductAttention(dropout)
         self.fc=nn.Linear(in_features=dim,out_features=dim)
-    def forward(self,q:torch.Tensor,k:torch.Tensor,v:torch.Tensor,mask=None):
+    def forward(self,q:torch.Tensor,k:torch.Tensor,v:torch.Tensor,mask=None)->Dict[str,torch.Tensor]:
         r"""
         params:
             q: query (batch, query_len, dim)
@@ -89,9 +89,10 @@ class MultiHeadAttention(nn.Module):
             distance=self.relative_distance(length=max(query_len,key_len),k=self.relative_position_encoding_k)
             distance=distance[:query_len,:key_len].to(device=q.device)
             relative_position_encoding_q,relative_position_encoding_v=self.relative_position_encoding_w(distance).chunk(2,dim=-1)
-            context, alignment=self.scaled_attention(q,k,v,mask,relative_position_encoding_q,relative_position_encoding_v)
+            # 返回的是字典
+            context, alignment=self.scaled_attention(q,k,v,mask,relative_position_encoding_q,relative_position_encoding_v).values()
         else:
-            context, alignment=self.scaled_attention(q,k,v,mask)
+            context, alignment=self.scaled_attention(q,k,v,mask).values()
         # swap len and head back
         context=rearrange(context,pattern="b h t d -> b t (h d)")
         context=self.fc(context)
@@ -106,5 +107,59 @@ class MultiHeadAttention(nn.Module):
         distance=indices-indices.transpose(0,1)
         distance=distance.clamp(min=-k,max=k)+k
         return distance
+
+# 位置逐元素反馈
+class PositionWiseFeedForward(nn.Module):
+    def __init__(self,dim,hidden,dropout:float):
+        super().__init__()
+        self.w1=nn.Linear(in_features=dim,out_features=hidden)
+        self.w2=nn.Linear(in_features=hidden,out_features=dim)
+        self.dropout=nn.Dropout(p=dropout)
+        self.relu=nn.ReLU(inplace=True)
+    def forward(self,x):
+        y=self.w1(x)
+        y=self.relu(y)
+        y=self.dropout(y)
+        y=self.w2(y)
+        return y
+
+class PreNorm(nn.Module):
+    def __init__(self,dim,model):
+        super().__init__()
+        self.norm=nn.LayerNorm(dim)
+        self.model=model
+    def forward(self,x):
+        y=self.model(self.norm(x))
+        return y
+
+class Residual(nn.Sequential):
+    def __init__(self,*layers):
+        super().__init__(*layers)
+    def forward(self,x):
+        return super().forward(x)+x
+
+class Applier(nn.Module):
+    def __init__(self,model, applier):
+        super().__init__()
+        self.model=model
+        self.applier=applier
+    def forward(self,x):
+        return self.applier(self.model,x)
+
+class TransformerEncoderLayer(nn.Module):
+    def __init__(self,dim,n_head,dropout,relative_position_encoding_k=0):
+        super().__init__()
+        multi_attention=MultiHeadAttention(dim=dim,head_number=n_head,dropout=dropout,
+                                           relative_position_encoding_k=relative_position_encoding_k)
+        ffn=PositionWiseFeedForward(dim=dim,hidden=4*dim,dropout=dropout)
+        wrap=lambda m:Residual(PreNorm(dim=dim,model=m),nn.Dropout(p=dropout))
+        self.attention=wrap(Applier(multi_attention,lambda model,x:model(x,x,x,self.mx).get("context")))
+        self.ffn=wrap(ffn)
+    def forward(self,x,xm):
+        self.xm=xm # 延迟访问
+        y=self.attention(x)
+        del self.xm
+        y=self.ffn(y)
+        return y
 if __name__=="__main__":
-    pass
+    transformer = TransformerEncoderLayer(dim=4, n_head=4, dropout=0.5)
