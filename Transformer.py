@@ -7,7 +7,7 @@ from typing import Dict
 from loguru import logger
 
 # 根据序列长度生padding mask，为避免运算时模型注意到padding
-def key_padding_mask(sequence_len):
+def key_padding_mask(sequence_len)->torch.Tensor:
     mask=torch.zeros(size=(len(sequence_len),max(sequence_len)),dtype=torch.float32)
     for index,length in enumerate(sequence_len):
         mask[index,length:]=True
@@ -138,6 +138,7 @@ class Residual(nn.Sequential):
     def forward(self,x):
         return super().forward(x)+x
 
+# Transformer解码块
 class Applier(nn.Module):
     def __init__(self,model, applier):
         super().__init__()
@@ -153,13 +154,55 @@ class TransformerEncoderLayer(nn.Module):
                                            relative_position_encoding_k=relative_position_encoding_k)
         ffn=PositionWiseFeedForward(dim=dim,hidden=4*dim,dropout=dropout)
         wrap=lambda m:Residual(PreNorm(dim=dim,model=m),nn.Dropout(p=dropout))
-        self.attention=wrap(Applier(multi_attention,lambda model,x:model(x,x,x,self.mx).get("context")))
+        self.attention=wrap(Applier(multi_attention,lambda model,x:model(x,x,x,self.x_mask).get("context")))
         self.ffn=wrap(ffn)
-    def forward(self,x,xm):
-        self.xm=xm # 延迟访问
+    def forward(self,x,x_mask):
+        self.x_mask=x_mask # 延迟访问
         y=self.attention(x)
-        del self.xm
+        del self.x_mask # 删除该属性
         y=self.ffn(y)
         return y
+
+# Transformer解码
+class TransformerEncoder(nn.Module):
+    def __init__(self,dim,n_head,num_layers,dropout=0.1,relative_position_encoding_k=8):
+        super().__init__()
+        self.layers=nn.ModuleList()
+        self.norm=nn.LayerNorm(dim)
+        for _ in range(num_layers):
+            self.layers.append(
+                TransformerEncoderLayer(
+                    dim=dim,
+                    n_head=n_head,
+                    dropout=dropout,
+                    relative_position_encoding_k=relative_position_encoding_k,
+                )
+            )
+    def forward(self,x:torch.Tensor):
+        x_length=list(map(len,x))
+        x_mask=key_padding_mask(x_length).to(x.device)
+        x_mask=x_mask.unsqueeze(dim=1)
+        for layer in self.layers:
+            x=layer(x,x_mask)
+        y=self.norm(x)
+        return y
 if __name__=="__main__":
-    transformer = TransformerEncoderLayer(dim=4, n_head=4, dropout=0.5)
+    x = torch.tensor([
+        [  # batch 0 (实际长度 3，已 pad 到 5)
+            [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8],
+            [0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6],
+            [1.7, 1.8, 1.9, 2.0, 2.1, 2.2, 2.3, 2.4],
+            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],  # padding
+            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],  # padding
+        ],
+        [  # batch 1 (实际长度 5)
+            [0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6],
+            [1.8, 2.0, 2.2, 2.4, 2.6, 2.8, 3.0, 3.2],
+            [3.4, 3.6, 3.8, 4.0, 4.2, 4.4, 4.6, 4.8],
+            [5.0, 5.2, 5.4, 5.6, 5.8, 6.0, 6.2, 6.4],
+            [6.6, 6.8, 7.0, 7.2, 7.4, 7.6, 7.8, 8.0],
+        ]
+    ], dtype=torch.float32)  # shape (2, 5, 8)
+    transformer = TransformerEncoder(dim=8, n_head=4, num_layers=5,dropout=0.5)
+    result=transformer(x)
+    print(result.shape)
