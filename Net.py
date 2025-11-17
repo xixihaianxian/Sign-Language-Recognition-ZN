@@ -35,43 +35,51 @@ class ModuleNet(nn.Module):
                     pass
                 else:
                     load_state_dict_from_url(url=url,model_dir=self.module_dir,file_name=f"{name}.pth")
-        # 选择MSTNet
+        # 选择MSTNet，多尺度时空网络
         if "MSTNet" == self.module_choice:
-            # 登录模型
-            self.conv2d = getattr(models, "resnet34")(weights=None)
+            # 登录模型，使用resnet34作为特征提取网络
+            self.feature_extraction = getattr(models, "resnet34")(weights=None)
             state_dict=torch.load(f=os.path.join(self.module_dir,f"resnet34.pth"))
-            self.conv2d.load_state_dict(state_dict)
-            self.conv2d.fc = Module.Identity()
+            self.feature_extraction.load_state_dict(state_dict)
+            self.feature_extraction.fc = Module.Identity()
             # 设置参数
             hidden_size = hidden_size
             input_size = hidden_size
-            # 设置模型块
+            heads = 8
+            semantic_layers = 2
+            dropout = 0
+            relative_position_encoding_k = 8
+            # 第一组多尺度卷积
             self.conv1D1_1 = nn.Conv1d(in_channels=input_size, out_channels=hidden_size, kernel_size=3, stride=1, padding=1)
             self.conv1D1_2 = nn.Conv1d(in_channels=input_size, out_channels=hidden_size, kernel_size=5, stride=1, padding=2)
             self.conv1D1_3 = nn.Conv1d(in_channels=input_size, out_channels=hidden_size, kernel_size=7, stride=1, padding=3)
-            self.conv1D1_4 = nn.Conv1d(in_channels=input_size, out_channels=hidden_size, kernel_size=9, stride=1, padding=4)
+            self.conv1D1_4 = nn.Conv1d(in_channels=input_size, out_channels=hidden_size, kernel_size=9, stride=1, padding=4) # 数据的height，width均不改变
+            # 二维卷积降维
             self.conv2D1 = nn.Conv2d(in_channels=hidden_size, out_channels=hidden_size, kernel_size=(4, 2), stride=2,padding=0)
+            # 第二组多尺度卷积
             self.conv1D2_1 = nn.Conv1d(in_channels=hidden_size, out_channels=hidden_size, kernel_size=3, stride=1, padding=1)
             self.conv1D2_2 = nn.Conv1d(in_channels=hidden_size, out_channels=hidden_size, kernel_size=5, stride=1, padding=2)
             self.conv1D2_3 = nn.Conv1d(in_channels=hidden_size, out_channels=hidden_size, kernel_size=7, stride=1, padding=3)
-            self.conv1D2_4 = nn.Conv1d(in_channels=hidden_size, out_channels=hidden_size, kernel_size=9, stride=1, padding=4)
+            self.conv1D2_4 = nn.Conv1d(in_channels=hidden_size, out_channels=hidden_size, kernel_size=9, stride=1, padding=4) # 数据的height，width均不改变
+            # 二维卷积降维
             self.conv2D2 = nn.Conv2d(in_channels=hidden_size, out_channels=hidden_size, kernel_size=(4, 2), stride=2, padding=0)
+            # 第一组的batchNorm，归一化
             self.batchNorm1d1_1 = nn.BatchNorm1d(hidden_size)
             self.batchNorm1d1_2 = nn.BatchNorm1d(hidden_size)
             self.batchNorm1d1_3 = nn.BatchNorm1d(hidden_size)
             self.batchNorm1d1_4 = nn.BatchNorm1d(hidden_size)
+            # 第二组的batchNorm，归一化
             self.batchNorm1d2_1 = nn.BatchNorm1d(hidden_size)
             self.batchNorm1d2_2 = nn.BatchNorm1d(hidden_size)
             self.batchNorm1d2_3 = nn.BatchNorm1d(hidden_size)
             self.batchNorm1d2_4 = nn.BatchNorm1d(hidden_size)
+            # 用于二维卷积的batchNorm，归一化
             self.batchNorm2d1 = nn.BatchNorm2d(hidden_size)
             self.batchNorm2d2 = nn.BatchNorm2d(hidden_size)
+            # 使用relu函数作为非线性激活函数
             self.relu = nn.ReLU(inplace=True)
-            heads = 8
-            semantic_layers = 2
-            dropout = 0
-            rpe_k = 8
-            self.temporal_model = Transformer.TransformerEncoder(hidden_size, heads, semantic_layers, dropout, rpe_k)
+            # 时序模型建模
+            self.temporal_model = Transformer.TransformerEncoder(hidden_size, heads, semantic_layers, dropout, relative_position_encoding_k)
             self.linear1 = nn.Linear(512, hidden_size)
             self.linear2 = nn.Linear(hidden_size, hidden_size)
             self.batchNorm1d1 = nn.BatchNorm1d(hidden_size)
@@ -202,9 +210,8 @@ class ModuleNet(nn.Module):
         # 选择MSTNet模型
         if "MSTNet" == self.module_choice:
             inputs = seq_data.reshape(batch_size * temp, channels, height, width)
-
-            x = torch.cat([inputs[len_x[0] * idx:len_x[0] * idx + lgt] for idx, lgt in enumerate(len_x)])
-
+            # 划分数据集
+            x = torch.cat([inputs[len_x[0] * index: len_x[0] * index + length] for index, length in enumerate(len_x)])
             n = len(x)
             indices = np.arange(n)
             np.random.shuffle(indices)
@@ -212,280 +219,202 @@ class ModuleNet(nn.Module):
             train_index = sorted(train_index)
             test_index = indices[int(n * 0.5):]
             test_index = sorted(test_index)
-            # TODO 修改trainData->train_data
-            trainData = x[train_index, :, :, :]
-            testData = x[test_index, :, :, :]
-
-            trainData = self.conv2d(trainData)
-
+            train_data = x[train_index, :, :, :]
+            test_data = x[test_index, :, :, :]
+            # 特征提取
+            train_data = self.feature_extraction(train_data)
             with torch.no_grad():
-                testData = self.conv2d(testData)
-
-            shape = trainData.shape
+                test_data = self.feature_extraction(test_data)
+            shape = train_data.shape
+            # TODO 看到这里
             x1 = torch.zeros(((shape[0] // 1) * 2, shape[1])).cuda()
-
             for i in range(len(train_index)):
-                x1[train_index[i], :] = trainData[i, :]
-
+                x1[train_index[i], :] = train_data[i, :]
             for i in range(len(test_index)):
-                x1[test_index[i], :] = testData[i, :]
-
-            framewise = torch.cat([self.pad(x1[sum(len_x[:idx]):sum(len_x[:idx + 1])], len_x[0])
-                                   for idx, lgt in enumerate(len_x)])
-
-            framewise = framewise.reshape(batch_size, temp, -1)
-
-            framewise = self.linear1(framewise).transpose(1, 2)
-            framewise = self.batchNorm1d1(framewise)
-            framewise = self.relu(framewise).transpose(1, 2)
-            #
-            framewise = self.linear2(framewise).transpose(1, 2)
-            framewise = self.batchNorm1d2(framewise)
-            framewise = self.relu(framewise)
-
-            inputData = self.conv1D1_1(framewise)
-            inputData = self.batchNorm1d1_1(inputData)
-            inputData = self.relu(inputData)
-
-            glossCandidate = inputData.unsqueeze(2)
-
-            inputData = self.conv1D1_2(framewise)
-            inputData = self.batchNorm1d1_2(inputData)
-            inputData = self.relu(inputData)
-
-            tmpData = inputData.unsqueeze(2)
-            glossCandidate = torch.cat([glossCandidate, tmpData], dim=2)
-
-            inputData = self.conv1D1_3(framewise)
-            inputData = self.batchNorm1d1_3(inputData)
-            inputData = self.relu(inputData)
-
-            tmpData = inputData.unsqueeze(2)
-            glossCandidate = torch.cat([glossCandidate, tmpData], dim=2)
-
-            inputData = self.conv1D1_4(framewise)
-            inputData = self.batchNorm1d1_4(inputData)
-            inputData = self.relu(inputData)
-
-            tmpData = inputData.unsqueeze(2)
-            glossCandidate = torch.cat([glossCandidate, tmpData], dim=2)
-
-            inputData = self.conv2D1(glossCandidate)
-            inputData = self.batchNorm2d1(inputData)
-            inputData1 = self.relu(inputData).squeeze(2)
-
+                x1[test_index[i], :] = test_data[i, :]
+            frame_wise = torch.cat([self.pad(x1[sum(len_x[:idx]):sum(len_x[:idx + 1])], len_x[0]) for idx, lgt in enumerate(len_x)])
+            frame_wise = frame_wise.reshape(batch_size, temp, -1)
+            frame_wise = self.linear1(frame_wise).transpose(1, 2)
+            frame_wise = self.batchNorm1d1(frame_wise)
+            frame_wise = self.relu(frame_wise).transpose(1, 2)
+            frame_wise = self.linear2(frame_wise).transpose(1, 2)
+            frame_wise = self.batchNorm1d2(frame_wise)
+            frame_wise = self.relu(frame_wise)
+            input_data = self.conv1D1_1(frame_wise)
+            input_data = self.batchNorm1d1_1(input_data)
+            input_data = self.relu(input_data)
+            gloss_candidate = input_data.unsqueeze(2)
+            input_data = self.conv1D1_2(frame_wise)
+            input_data = self.batchNorm1d1_2(input_data)
+            input_data = self.relu(input_data)
+            tmp_data = input_data.unsqueeze(2)
+            gloss_candidate = torch.cat([gloss_candidate, tmp_data], dim=2)
+            input_data = self.conv1D1_3(frame_wise)
+            input_data = self.batchNorm1d1_3(input_data)
+            input_data = self.relu(input_data)
+            tmp_data = input_data.unsqueeze(2)
+            gloss_candidate = torch.cat([gloss_candidate, tmp_data], dim=2)
+            input_data = self.conv1D1_4(frame_wise)
+            input_data = self.batchNorm1d1_4(input_data)
+            input_data = self.relu(input_data)
+            tmp_data = input_data.unsqueeze(2)
+            gloss_candidate = torch.cat([gloss_candidate, tmp_data], dim=2)
+            input_data = self.conv2D1(gloss_candidate)
+            input_data = self.batchNorm2d1(input_data)
+            input_data_1 = self.relu(input_data).squeeze(2)
             # 2
-            inputData = self.conv1D2_1(inputData1)
-            inputData = self.batchNorm1d2_1(inputData)
-            inputData = self.relu(inputData)
-
-            glossCandidate = inputData.unsqueeze(2)
-
-            inputData = self.conv1D2_2(inputData1)
-            inputData = self.batchNorm1d2_2(inputData)
-            inputData = self.relu(inputData)
-
-            tmpData = inputData.unsqueeze(2)
-            glossCandidate = torch.cat([glossCandidate, tmpData], dim=2)
-
-            inputData = self.conv1D2_3(inputData1)
-            inputData = self.batchNorm1d2_3(inputData)
-            inputData = self.relu(inputData)
-
-            tmpData = inputData.unsqueeze(2)
-            glossCandidate = torch.cat([glossCandidate, tmpData], dim=2)
-
-            inputData = self.conv1D2_4(inputData1)
-            inputData = self.batchNorm1d2_4(inputData)
-            inputData = self.relu(inputData)
-
-            tmpData = inputData.unsqueeze(2)
-            glossCandidate = torch.cat([glossCandidate, tmpData], dim=2)
-
-            inputData = self.conv2D2(glossCandidate)
-            inputData = self.batchNorm2d2(inputData)
-            inputData = self.relu(inputData).squeeze(2)
-
+            input_data = self.conv1D2_1(input_data_1)
+            input_data = self.batchNorm1d2_1(input_data)
+            input_data = self.relu(input_data)
+            gloss_candidate = input_data.unsqueeze(2)
+            input_data = self.conv1D2_2(input_data_1)
+            input_data = self.batchNorm1d2_2(input_data)
+            input_data = self.relu(input_data)
+            tmp_data = input_data.unsqueeze(2)
+            gloss_candidate = torch.cat([gloss_candidate, tmp_data], dim=2)
+            input_data = self.conv1D2_3(input_data_1)
+            input_data = self.batchNorm1d2_3(input_data)
+            input_data = self.relu(input_data)
+            tmp_data = input_data.unsqueeze(2)
+            gloss_candidate = torch.cat([gloss_candidate, tmp_data], dim=2)
+            input_data = self.conv1D2_4(input_data_1)
+            input_data = self.batchNorm1d2_4(input_data)
+            input_data = self.relu(input_data)
+            tmp_data = input_data.unsqueeze(2)
+            gloss_candidate = torch.cat([gloss_candidate, tmp_data], dim=2)
+            input_data = self.conv2D2(gloss_candidate)
+            input_data = self.batchNorm2d2(input_data)
+            input_data = self.relu(input_data).squeeze(2)
             if not self.data_set_name == 'CSL':
                 lgt = torch.cat(len_x, dim=0) // 4
-                x = inputData.permute(0, 2, 1)
+                x = input_data.permute(0, 2, 1)
             else:
                 lgt = (torch.cat(len_x, dim=0) // 4) - 6
-                x = inputData.permute(0, 2, 1)
+                x = input_data.permute(0, 2, 1)
                 x = x[:, 3:-3, :]
-
             outputs = self.temporal_model(x)
-
             outputs = outputs.permute(1, 0, 2)
             log_probs_1 = self.classifier1(outputs)
-
             outputs = x.permute(1, 0, 2)
             log_probs_2 = self.classifier2(outputs)
-
             if not self.data_set_name == 'CSL':
-                outputs = inputData1.permute(2, 0, 1)
+                outputs = input_data_1.permute(2, 0, 1)
                 log_probs_3 = self.classifier3(outputs)
-
-                outputs = framewise.permute(2, 0, 1)
+                outputs = frame_wise.permute(2, 0, 1)
                 log_probs_4 = self.classifier4(outputs)
-
             log_probs_5 = log_probs_1
+        # 选择模型VAC
         elif "VAC" == self.module_choice:
             batch_size, temp, channels, height, width = seq_data.shape
             inputs = seq_data.reshape(batch_size * temp, channels, height, width)
-
             x = torch.cat([inputs[len_x[0] * idx:len_x[0] * idx + lgt] for idx, lgt in enumerate(len_x)])
-
             x = self.conv2d(x)
-
-            framewise = torch.cat([self.pad(x[sum(len_x[:idx]):sum(len_x[:idx + 1])], len_x[0])
-                                   for idx, lgt in enumerate(len_x)])
-
-            framewise = framewise.reshape(batch_size, temp, -1).transpose(1, 2)
-
-            conv1d_outputs = self.conv1d(framewise, len_x)
+            frame_wise = torch.cat([self.pad(x[sum(len_x[:idx]):sum(len_x[:idx + 1])], len_x[0]) for idx, lgt in enumerate(len_x)])
+            frame_wise = frame_wise.reshape(batch_size, temp, -1).transpose(1, 2)
+            conv1d_outputs = self.conv1d(frame_wise, len_x)
             # x: T, B, C
             x = conv1d_outputs['visual_feat']
             lgt = conv1d_outputs['feat_len']
             x = x.permute(2, 0, 1)
             lgt = torch.cat(lgt, dim=0)
-
             outputs = self.temporal_model(x, lgt)
-
             encoderPrediction = self.classifier(outputs['predictions'])
             log_probs_1 = encoderPrediction
-
             encoderPrediction = self.classifier1(x)
             log_probs_2 = encoderPrediction
         elif "CorrNet" == self.module_choice:
             batch_size, temp, channels, height, width = seq_data.shape
             x = seq_data.transpose(1, 2)
-
-            framewise = self.conv2d(x)
-
-            framewise = framewise.reshape(batch_size, temp, -1).transpose(1, 2)
-
-            conv1d_outputs = self.conv1d(framewise, len_x)
+            frame_wise = self.conv2d(x)
+            frame_wise = frame_wise.reshape(batch_size, temp, -1).transpose(1, 2)
+            conv1d_outputs = self.conv1d(frame_wise, len_x)
             # x: T, B, C
             x = conv1d_outputs['visual_feat']
             lgt = conv1d_outputs['feat_len']
             x = x.permute(2, 0, 1)
             lgt = torch.cat(lgt, dim=0)
-
             outputs = self.temporal_model(x, lgt)
-
             encoderPrediction = self.classifier(outputs['predictions'])
             log_probs_1 = encoderPrediction
-
             encoderPrediction = self.classifier1(x)
             log_probs_2 = encoderPrediction
         elif "MAM-FSD" == self.module_choice:
             batch_size, temp, channels, height, width = seq_data.shape
-
             x = seq_data.transpose(1, 2)
-
-            framewise, out_data_1, out_data_2, out_data_3 = self.conv2d(x)
-
+            frame_wise, out_data_1, out_data_2, out_data_3 = self.conv2d(x)
             tmpOut = self.conv1(out_data_1[0])
             tmpOut = self.batchNorm3d1(tmpOut)
             out_data_1[0] = self.reLU(tmpOut)
-
             tmpOut = self.conv2(out_data_2[0])
             tmpOut = self.batchNorm3d2(tmpOut)
             out_data_2[0] = self.reLU(tmpOut)
-
             tmpOut = self.conv3(out_data_3[0])
             tmpOut = self.batchNorm3d3(tmpOut)
             out_data_3[0] = self.reLU(tmpOut)
-
-            framewise = framewise.reshape(batch_size, temp, -1).transpose(1, 2)
-
-            conv1d_outputs = self.conv1d(framewise, len_x)
+            frame_wise = frame_wise.reshape(batch_size, temp, -1).transpose(1, 2)
+            conv1d_outputs = self.conv1d(frame_wise, len_x)
             # x: T, B, C
             x = conv1d_outputs['visual_feat']
             lgt = conv1d_outputs['feat_len']
             x = x.permute(2, 0, 1)
             lgt = torch.cat(lgt, dim=0)
-
             outputs = self.temporal_model(x, lgt)
-
             encoderPrediction = self.classifier(outputs['predictions'])
             log_probs_1 = encoderPrediction
-
             encoderPrediction = self.classifier1(x)
             log_probs_2 = encoderPrediction
-
             log_probs_3 = None
             log_probs_4 = None
         elif "SEN" == self.module_choice:
             batch_size, temp, channels, height, width = seq_data.shape
             x = seq_data.transpose(1, 2)
-
-            framewise = self.conv2d(x)
-
-            framewise = framewise.reshape(batch_size, temp, -1).transpose(1, 2)
-
-            conv1d_outputs = self.conv1d(framewise, len_x)
+            frame_wise = self.conv2d(x)
+            frame_wise = frame_wise.reshape(batch_size, temp, -1).transpose(1, 2)
+            conv1d_outputs = self.conv1d(frame_wise, len_x)
             # x: T, B, C
             x = conv1d_outputs['visual_feat']
             lgt = conv1d_outputs['feat_len']
             x = x.permute(2, 0, 1)
             lgt = torch.cat(lgt, dim=0)
-
             outputs = self.temporal_model(x, lgt)
-
             encoderPrediction = self.classifier(outputs['predictions'])
             log_probs_1 = encoderPrediction
-
             encoderPrediction = self.classifier1(x)
             log_probs_2 = encoderPrediction
         elif "TFNet" == self.module_choice:
             batch_size, temp, channels, height, width = seq_data.shape
             x = seq_data.transpose(1, 2)
-
-            framewise, out_data_1, out_data_2, out_data_3 = self.conv2d(x)
-
-            framewise = framewise.reshape(batch_size, temp, -1).transpose(1, 2)
-
+            frame_wise, out_data_1, out_data_2, out_data_3 = self.conv2d(x)
+            frame_wise = frame_wise.reshape(batch_size, temp, -1).transpose(1, 2)
             # 傅里叶变换
-            framewise1 = framewise.transpose(1, 2).float()
+            framewise1 = frame_wise.transpose(1, 2).float()
             X = torch.fft.fft(framewise1, dim=-1, norm="forward")
             X = torch.abs(X)
             framewise1 = X.transpose(1, 2)
-
-            conv1d_outputs = self.conv1d(framewise, len_x)
+            conv1d_outputs = self.conv1d(frame_wise, len_x)
             # x: T, B, C
             x = conv1d_outputs['visual_feat']
             lgt = conv1d_outputs['feat_len']
             x = x.permute(2, 0, 1)
             lgt = torch.cat(lgt, dim=0)
-
             conv1d_outputs1 = self.conv1d1(framewise1, len_x)
             # x: T, B, C
             x1 = conv1d_outputs1['visual_feat']
             x1 = x1.permute(2, 0, 1)
-
             outputs = self.temporal_model(x, lgt)
             outputs1 = self.temporal_model1(x1, lgt)
-
             encoderPrediction = self.classifier11(outputs['predictions'])
             log_probs_1 = encoderPrediction
-
             encoderPrediction = self.classifier22(x)
             log_probs_2 = encoderPrediction
-
             encoderPrediction = self.classifier33(outputs1['predictions'])
             log_probs_3 = encoderPrediction
-
             encoderPrediction = self.classifier44(x1)
             log_probs_4 = encoderPrediction
-
             x2 = outputs['predictions'] + outputs1['predictions']
             log_probs_5 = self.classifier55(x2)
-
             if not is_train:
                 log_probs_1 = log_probs_5
-
         return log_probs_1, log_probs_2, log_probs_3, log_probs_4, log_probs_5, lgt, out_data_1, out_data_2, out_data_3
 
 if __name__=="__main__":
