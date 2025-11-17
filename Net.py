@@ -35,7 +35,7 @@ class ModuleNet(nn.Module):
                     pass
                 else:
                     load_state_dict_from_url(url=url,model_dir=self.module_dir,file_name=f"{name}.pth")
-        # 模型选择
+        # 选择MSTNet
         if "MSTNet" == self.module_choice:
             # 登录模型
             self.conv2d = getattr(models, "resnet34")(weights=None)
@@ -45,66 +45,49 @@ class ModuleNet(nn.Module):
             # 设置参数
             hidden_size = hidden_size
             input_size = hidden_size
-            self.conv1D1_1 = nn.Conv1d(in_channels=input_size, out_channels=hidden_size, kernel_size=3, stride=1,
-                                       padding=1)
-            self.conv1D1_2 = nn.Conv1d(in_channels=input_size, out_channels=hidden_size, kernel_size=5, stride=1,
-                                       padding=2)
-            self.conv1D1_3 = nn.Conv1d(in_channels=input_size, out_channels=hidden_size, kernel_size=7, stride=1,
-                                       padding=3)
-            self.conv1D1_4 = nn.Conv1d(in_channels=input_size, out_channels=hidden_size, kernel_size=9, stride=1,
-                                       padding=4)
-
-            self.conv2D1 = nn.Conv2d(in_channels=hidden_size, out_channels=hidden_size, kernel_size=(4, 2), stride=2,
-                                     padding=0)
-
-            self.conv1D2_1 = nn.Conv1d(in_channels=hidden_size, out_channels=hidden_size, kernel_size=3, stride=1,
-                                       padding=1)
-            self.conv1D2_2 = nn.Conv1d(in_channels=hidden_size, out_channels=hidden_size, kernel_size=5, stride=1,
-                                       padding=2)
-            self.conv1D2_3 = nn.Conv1d(in_channels=hidden_size, out_channels=hidden_size, kernel_size=7, stride=1,
-                                       padding=3)
-            self.conv1D2_4 = nn.Conv1d(in_channels=hidden_size, out_channels=hidden_size, kernel_size=9, stride=1,
-                                       padding=4)
-
-            self.conv2D2 = nn.Conv2d(in_channels=hidden_size, out_channels=hidden_size, kernel_size=(4, 2), stride=2,
-                                     padding=0)
-
+            # 设置模型块
+            self.conv1D1_1 = nn.Conv1d(in_channels=input_size, out_channels=hidden_size, kernel_size=3, stride=1, padding=1)
+            self.conv1D1_2 = nn.Conv1d(in_channels=input_size, out_channels=hidden_size, kernel_size=5, stride=1, padding=2)
+            self.conv1D1_3 = nn.Conv1d(in_channels=input_size, out_channels=hidden_size, kernel_size=7, stride=1, padding=3)
+            self.conv1D1_4 = nn.Conv1d(in_channels=input_size, out_channels=hidden_size, kernel_size=9, stride=1, padding=4)
+            self.conv2D1 = nn.Conv2d(in_channels=hidden_size, out_channels=hidden_size, kernel_size=(4, 2), stride=2,padding=0)
+            self.conv1D2_1 = nn.Conv1d(in_channels=hidden_size, out_channels=hidden_size, kernel_size=3, stride=1, padding=1)
+            self.conv1D2_2 = nn.Conv1d(in_channels=hidden_size, out_channels=hidden_size, kernel_size=5, stride=1, padding=2)
+            self.conv1D2_3 = nn.Conv1d(in_channels=hidden_size, out_channels=hidden_size, kernel_size=7, stride=1, padding=3)
+            self.conv1D2_4 = nn.Conv1d(in_channels=hidden_size, out_channels=hidden_size, kernel_size=9, stride=1, padding=4)
+            self.conv2D2 = nn.Conv2d(in_channels=hidden_size, out_channels=hidden_size, kernel_size=(4, 2), stride=2, padding=0)
             self.batchNorm1d1_1 = nn.BatchNorm1d(hidden_size)
             self.batchNorm1d1_2 = nn.BatchNorm1d(hidden_size)
             self.batchNorm1d1_3 = nn.BatchNorm1d(hidden_size)
             self.batchNorm1d1_4 = nn.BatchNorm1d(hidden_size)
-
             self.batchNorm1d2_1 = nn.BatchNorm1d(hidden_size)
             self.batchNorm1d2_2 = nn.BatchNorm1d(hidden_size)
             self.batchNorm1d2_3 = nn.BatchNorm1d(hidden_size)
             self.batchNorm1d2_4 = nn.BatchNorm1d(hidden_size)
-
             self.batchNorm2d1 = nn.BatchNorm2d(hidden_size)
             self.batchNorm2d2 = nn.BatchNorm2d(hidden_size)
-
             self.relu = nn.ReLU(inplace=True)
-
             heads = 8
             semantic_layers = 2
             dropout = 0
             rpe_k = 8
             self.temporal_model = Transformer.TransformerEncoder(hidden_size, heads, semantic_layers, dropout, rpe_k)
-
             self.linear1 = nn.Linear(512, hidden_size)
             self.linear2 = nn.Linear(hidden_size, hidden_size)
-
             self.batchNorm1d1 = nn.BatchNorm1d(hidden_size)
             self.batchNorm1d2 = nn.BatchNorm1d(hidden_size)
-
             self.classifier1 = Module.NormLinear(hidden_size, self.out_dim)
             self.classifier2 = Module.NormLinear(hidden_size, self.out_dim)
-
             if self.data_set_name == 'RWTH' or self.data_set_name == 'CE-CSL':
                 self.classifier3 = Module.NormLinear(hidden_size, self.out_dim)
                 self.classifier4 = Module.NormLinear(input_size, self.out_dim)
         elif "VAC" == self.module_choice:
+            # 登录模型
+            self.conv2d = getattr(models, "resnet18")(weights=None)
+            state_dict=torch.load(f=os.path.join(self.module_dir,"resnet18.pth"))
+            self.load_state_dict(state_dict)
+            # 设置参数
             hidden_size = hidden_size
-            self.conv2d = getattr(models, "resnet18")(pretrained=True)
             self.conv2d.fc = Module.Identity()
 
             self.conv1d = Module.TemporalConv(input_size=512,
@@ -203,33 +186,35 @@ class ModuleNet(nn.Module):
     def pad(self, tensor, length):
         return torch.cat([tensor, tensor.new(length - tensor.size(0), *tensor.size()[1:]).zero_()])
 
-    def forward(self, seqData, dataLen=None, isTrain=True):
-        outData1 = None
-        outData2 = None
-        outData3 = None
-        logProbs1 = None
-        logProbs2 = None
-        logProbs3 = None
-        logProbs4 = None
-        logProbs5 = None
-
+    def forward(self, seq_data, data_len=None, is_train=True):
+        out_data_1 = None
+        out_data_2 = None
+        out_data_3 = None
+        log_probs_1 = None
+        log_probs_2 = None
+        log_probs_3 = None
+        log_probs_4 = None
+        log_probs_5 = None
+        # 设置len_x
+        len_x = data_len
+        # 获取batch_size,temp,channels,height,width
+        batch_size, temp, channels, height, width = seq_data.shape
+        # 选择MSTNet模型
         if "MSTNet" == self.module_choice:
-            len_x = dataLen
-            batch, temp, channel, height, width = seqData.shape
-            inputs = seqData.reshape(batch * temp, channel, height, width)
+            inputs = seq_data.reshape(batch_size * temp, channels, height, width)
 
             x = torch.cat([inputs[len_x[0] * idx:len_x[0] * idx + lgt] for idx, lgt in enumerate(len_x)])
 
             n = len(x)
             indices = np.arange(n)
             np.random.shuffle(indices)
-            trainIndex = indices[: int(n * 0.5)]
-            trainIndex = sorted(trainIndex)
-            testIndex = indices[int(n * 0.5):]
-            testIndex = sorted(testIndex)
-
-            trainData = x[trainIndex, :, :, :]
-            testData = x[testIndex, :, :, :]
+            train_index = indices[: int(n * 0.5)]
+            train_index = sorted(train_index)
+            test_index = indices[int(n * 0.5):]
+            test_index = sorted(test_index)
+            # TODO 修改trainData->train_data
+            trainData = x[train_index, :, :, :]
+            testData = x[test_index, :, :, :]
 
             trainData = self.conv2d(trainData)
 
@@ -239,16 +224,16 @@ class ModuleNet(nn.Module):
             shape = trainData.shape
             x1 = torch.zeros(((shape[0] // 1) * 2, shape[1])).cuda()
 
-            for i in range(len(trainIndex)):
-                x1[trainIndex[i], :] = trainData[i, :]
+            for i in range(len(train_index)):
+                x1[train_index[i], :] = trainData[i, :]
 
-            for i in range(len(testIndex)):
-                x1[testIndex[i], :] = testData[i, :]
+            for i in range(len(test_index)):
+                x1[test_index[i], :] = testData[i, :]
 
             framewise = torch.cat([self.pad(x1[sum(len_x[:idx]):sum(len_x[:idx + 1])], len_x[0])
                                    for idx, lgt in enumerate(len_x)])
 
-            framewise = framewise.reshape(batch, temp, -1)
+            framewise = framewise.reshape(batch_size, temp, -1)
 
             framewise = self.linear1(framewise).transpose(1, 2)
             framewise = self.batchNorm1d1(framewise)
@@ -332,23 +317,22 @@ class ModuleNet(nn.Module):
             outputs = self.temporal_model(x)
 
             outputs = outputs.permute(1, 0, 2)
-            logProbs1 = self.classifier1(outputs)
+            log_probs_1 = self.classifier1(outputs)
 
             outputs = x.permute(1, 0, 2)
-            logProbs2 = self.classifier2(outputs)
+            log_probs_2 = self.classifier2(outputs)
 
             if not self.data_set_name == 'CSL':
                 outputs = inputData1.permute(2, 0, 1)
-                logProbs3 = self.classifier3(outputs)
+                log_probs_3 = self.classifier3(outputs)
 
                 outputs = framewise.permute(2, 0, 1)
-                logProbs4 = self.classifier4(outputs)
+                log_probs_4 = self.classifier4(outputs)
 
-            logProbs5 = logProbs1
+            log_probs_5 = log_probs_1
         elif "VAC" == self.module_choice:
-            len_x = dataLen
-            batch, temp, channel, height, width = seqData.shape
-            inputs = seqData.reshape(batch * temp, channel, height, width)
+            batch_size, temp, channels, height, width = seq_data.shape
+            inputs = seq_data.reshape(batch_size * temp, channels, height, width)
 
             x = torch.cat([inputs[len_x[0] * idx:len_x[0] * idx + lgt] for idx, lgt in enumerate(len_x)])
 
@@ -357,7 +341,7 @@ class ModuleNet(nn.Module):
             framewise = torch.cat([self.pad(x[sum(len_x[:idx]):sum(len_x[:idx + 1])], len_x[0])
                                    for idx, lgt in enumerate(len_x)])
 
-            framewise = framewise.reshape(batch, temp, -1).transpose(1, 2)
+            framewise = framewise.reshape(batch_size, temp, -1).transpose(1, 2)
 
             conv1d_outputs = self.conv1d(framewise, len_x)
             # x: T, B, C
@@ -369,18 +353,17 @@ class ModuleNet(nn.Module):
             outputs = self.temporal_model(x, lgt)
 
             encoderPrediction = self.classifier(outputs['predictions'])
-            logProbs1 = encoderPrediction
+            log_probs_1 = encoderPrediction
 
             encoderPrediction = self.classifier1(x)
-            logProbs2 = encoderPrediction
+            log_probs_2 = encoderPrediction
         elif "CorrNet" == self.module_choice:
-            len_x = dataLen
-            batch, temp, channel, height, width = seqData.shape
-            x = seqData.transpose(1, 2)
+            batch_size, temp, channels, height, width = seq_data.shape
+            x = seq_data.transpose(1, 2)
 
             framewise = self.conv2d(x)
 
-            framewise = framewise.reshape(batch, temp, -1).transpose(1, 2)
+            framewise = framewise.reshape(batch_size, temp, -1).transpose(1, 2)
 
             conv1d_outputs = self.conv1d(framewise, len_x)
             # x: T, B, C
@@ -392,31 +375,30 @@ class ModuleNet(nn.Module):
             outputs = self.temporal_model(x, lgt)
 
             encoderPrediction = self.classifier(outputs['predictions'])
-            logProbs1 = encoderPrediction
+            log_probs_1 = encoderPrediction
 
             encoderPrediction = self.classifier1(x)
-            logProbs2 = encoderPrediction
+            log_probs_2 = encoderPrediction
         elif "MAM-FSD" == self.module_choice:
-            len_x = dataLen
-            batch, temp, channel, height, width = seqData.shape
+            batch_size, temp, channels, height, width = seq_data.shape
 
-            x = seqData.transpose(1, 2)
+            x = seq_data.transpose(1, 2)
 
-            framewise, outData1, outData2, outData3 = self.conv2d(x)
+            framewise, out_data_1, out_data_2, out_data_3 = self.conv2d(x)
 
-            tmpOut = self.conv1(outData1[0])
+            tmpOut = self.conv1(out_data_1[0])
             tmpOut = self.batchNorm3d1(tmpOut)
-            outData1[0] = self.reLU(tmpOut)
+            out_data_1[0] = self.reLU(tmpOut)
 
-            tmpOut = self.conv2(outData2[0])
+            tmpOut = self.conv2(out_data_2[0])
             tmpOut = self.batchNorm3d2(tmpOut)
-            outData2[0] = self.reLU(tmpOut)
+            out_data_2[0] = self.reLU(tmpOut)
 
-            tmpOut = self.conv3(outData3[0])
+            tmpOut = self.conv3(out_data_3[0])
             tmpOut = self.batchNorm3d3(tmpOut)
-            outData3[0] = self.reLU(tmpOut)
+            out_data_3[0] = self.reLU(tmpOut)
 
-            framewise = framewise.reshape(batch, temp, -1).transpose(1, 2)
+            framewise = framewise.reshape(batch_size, temp, -1).transpose(1, 2)
 
             conv1d_outputs = self.conv1d(framewise, len_x)
             # x: T, B, C
@@ -428,21 +410,20 @@ class ModuleNet(nn.Module):
             outputs = self.temporal_model(x, lgt)
 
             encoderPrediction = self.classifier(outputs['predictions'])
-            logProbs1 = encoderPrediction
+            log_probs_1 = encoderPrediction
 
             encoderPrediction = self.classifier1(x)
-            logProbs2 = encoderPrediction
+            log_probs_2 = encoderPrediction
 
-            logProbs3 = None
-            logProbs4 = None
+            log_probs_3 = None
+            log_probs_4 = None
         elif "SEN" == self.module_choice:
-            len_x = dataLen
-            batch, temp, channel, height, width = seqData.shape
-            x = seqData.transpose(1, 2)
+            batch_size, temp, channels, height, width = seq_data.shape
+            x = seq_data.transpose(1, 2)
 
             framewise = self.conv2d(x)
 
-            framewise = framewise.reshape(batch, temp, -1).transpose(1, 2)
+            framewise = framewise.reshape(batch_size, temp, -1).transpose(1, 2)
 
             conv1d_outputs = self.conv1d(framewise, len_x)
             # x: T, B, C
@@ -454,18 +435,17 @@ class ModuleNet(nn.Module):
             outputs = self.temporal_model(x, lgt)
 
             encoderPrediction = self.classifier(outputs['predictions'])
-            logProbs1 = encoderPrediction
+            log_probs_1 = encoderPrediction
 
             encoderPrediction = self.classifier1(x)
-            logProbs2 = encoderPrediction
+            log_probs_2 = encoderPrediction
         elif "TFNet" == self.module_choice:
-            len_x = dataLen
-            batch, temp, channel, height, width = seqData.shape
-            x = seqData.transpose(1, 2)
+            batch_size, temp, channels, height, width = seq_data.shape
+            x = seq_data.transpose(1, 2)
 
-            framewise, outData1, outData2, outData3 = self.conv2d(x)
+            framewise, out_data_1, out_data_2, out_data_3 = self.conv2d(x)
 
-            framewise = framewise.reshape(batch, temp, -1).transpose(1, 2)
+            framewise = framewise.reshape(batch_size, temp, -1).transpose(1, 2)
 
             # 傅里叶变换
             framewise1 = framewise.transpose(1, 2).float()
@@ -489,24 +469,24 @@ class ModuleNet(nn.Module):
             outputs1 = self.temporal_model1(x1, lgt)
 
             encoderPrediction = self.classifier11(outputs['predictions'])
-            logProbs1 = encoderPrediction
+            log_probs_1 = encoderPrediction
 
             encoderPrediction = self.classifier22(x)
-            logProbs2 = encoderPrediction
+            log_probs_2 = encoderPrediction
 
             encoderPrediction = self.classifier33(outputs1['predictions'])
-            logProbs3 = encoderPrediction
+            log_probs_3 = encoderPrediction
 
             encoderPrediction = self.classifier44(x1)
-            logProbs4 = encoderPrediction
+            log_probs_4 = encoderPrediction
 
             x2 = outputs['predictions'] + outputs1['predictions']
-            logProbs5 = self.classifier55(x2)
+            log_probs_5 = self.classifier55(x2)
 
-            if not isTrain:
-                logProbs1 = logProbs5
+            if not is_train:
+                log_probs_1 = log_probs_5
 
-        return logProbs1, logProbs2, logProbs3, logProbs4, logProbs5, lgt, outData1, outData2, outData3
+        return log_probs_1, log_probs_2, log_probs_3, log_probs_4, log_probs_5, lgt, out_data_1, out_data_2, out_data_3
 
 if __name__=="__main__":
     resnet34=models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
