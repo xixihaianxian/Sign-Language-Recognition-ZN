@@ -191,8 +191,13 @@ class ModuleNet(nn.Module):
 
             self.reLU = nn.ReLU(inplace=True)
 
-    def pad(self, tensor, length):
-        return torch.cat([tensor, tensor.new(length - tensor.size(0), *tensor.size()[1:]).zero_()])
+    def pad(self, tensor:torch.Tensor, length:int)->torch.Tensor:
+        number=tensor.size(0)
+        if number<length:
+            return torch.cat([tensor, tensor.new(length - tensor.size(0), *tensor.size()[1:]).zero_()])
+        # 当length大于number时对数据进行裁剪（保留目前不知道是否可以这样操作）
+        else:
+            return tensor[:length]
 
     def forward(self, seq_data, data_len=None, is_train=True):
         out_data_1 = None
@@ -219,20 +224,24 @@ class ModuleNet(nn.Module):
             train_index = sorted(train_index)
             test_index = indices[int(n * 0.5):]
             test_index = sorted(test_index)
-            train_data = x[train_index, :, :, :]
+            train_data = x[train_index, :, :, :] # shape(batch_size*temp, channels, height, width)
             test_data = x[test_index, :, :, :]
-            # 特征提取
+            # 训练集特征提取
             train_data = self.feature_extraction(train_data)
+            # 测试集特征提取
             with torch.no_grad():
                 test_data = self.feature_extraction(test_data)
             shape = train_data.shape
-            # TODO 看到这里
-            x1 = torch.zeros(((shape[0] // 1) * 2, shape[1])).cuda()
+            # x1转移到cuda上
+            x1 = torch.zeros(size=((shape[0] // 1) * 2, shape[1])).to(device=self.device) # shape(batch_size*temp,feature_dim)
             for i in range(len(train_index)):
                 x1[train_index[i], :] = train_data[i, :]
             for i in range(len(test_index)):
                 x1[test_index[i], :] = test_data[i, :]
-            frame_wise = torch.cat([self.pad(x1[sum(len_x[:idx]):sum(len_x[:idx + 1])], len_x[0]) for idx, lgt in enumerate(len_x)])
+            # 计算之后x1上面包含了所有的经过特征提取之后的train_data和test_data，同时排列的顺序也是按照x的顺序来排列
+            # 序列长度标准化，保持在len_x[0]
+            frame_wise = torch.cat([self.pad(x1[sum(len_x[:idx]):sum(len_x[:idx + 1])], len_x[0]) for idx, length in enumerate(len_x)])
+            # 修改frame_wise的形状
             frame_wise = frame_wise.reshape(batch_size, temp, -1)
             frame_wise = self.linear1(frame_wise).transpose(1, 2)
             frame_wise = self.batchNorm1d1(frame_wise)
@@ -418,5 +427,7 @@ class ModuleNet(nn.Module):
         return log_probs_1, log_probs_2, log_probs_3, log_probs_4, log_probs_5, lgt, out_data_1, out_data_2, out_data_3
 
 if __name__=="__main__":
+    x=torch.randn(size=(20,3,512,512))
     resnet34=models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+    resnet34.fc=Module.Identity()
     print(resnet34)
