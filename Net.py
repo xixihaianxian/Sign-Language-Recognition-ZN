@@ -10,7 +10,7 @@ import os
 from torch.hub import load_state_dict_from_url
 
 class ModuleNet(nn.Module):
-    def __init__(self, hidden_size, word_set_num, module_choice="Seq2Seq", device=torch.device("cuda"), data_set_name='RWTH', is_flag=False, download_weights=True, module_dir="~/model"):
+    def __init__(self, hidden_size, word_set_num:int, module_choice="Seq2Seq", device=torch.device("cuda"), data_set_name='RWTH', is_flag=False, download_weights=True, module_dir="~/model"):
         super().__init__()
         self.model_urls={
             "resnet34":"https://download.pytorch.org/models/resnet34-b627a593.pth", # weights=default
@@ -97,100 +97,56 @@ class ModuleNet(nn.Module):
             # 设置参数
             hidden_size = hidden_size
             self.conv2d.fc = Module.Identity()
-
-            self.conv1d = Module.TemporalConv(input_size=512,
-                                           hidden_size=hidden_size,
-                                           conv_type=2)
-
-            self.temporal_model = BiLSTMLayer(rnn_type='LSTM', input_size=hidden_size, hidden_size=hidden_size,
-                                              num_layers=2, bidirectional=True)
-
+            self.conv1d = Module.TemporalConv(input_size=512, hidden_size=hidden_size, convolution_type=2)
+            self.temporal_model = BiLSTMLayer(rnn_type='LSTM', embedding_size=hidden_size, hidden_size=hidden_size, num_layers=2, bidirectional=True)
             self.classifier = Module.NormLinear(hidden_size, self.out_dim)
             self.classifier1 = self.classifier
         elif "CorrNet" == self.module_choice:
             hidden_size = hidden_size
             self.conv2d = Module.resnet18corr()
             self.conv2d.fc = Module.Identity()
-
-            self.conv1d = Module.TemporalConv(input_size=512,
-                                           hidden_size=hidden_size,
-                                           conv_type=2)
-
-            self.temporal_model = BiLSTMLayer(rnn_type='LSTM', input_size=hidden_size, hidden_size=hidden_size,
-                                              num_layers=2, bidirectional=True)
-
+            self.conv1d = Module.TemporalConv(input_size=512, hidden_size=hidden_size, convolution_type=2)
+            self.temporal_model = BiLSTMLayer(rnn_type='LSTM', embedding_size=hidden_size, hidden_size=hidden_size, num_layers=2, bidirectional=True)
             self.classifier = Module.NormLinear(hidden_size, self.out_dim)
             self.classifier1 = self.classifier
         elif "MAM-FSD" == self.module_choice:
             hidden_size = hidden_size
             self.conv2d = Module.resnet34mam()
             self.conv2d.fc = Module.Identity()
-
-            self.conv1d = Module.TemporalConv(input_size=512,
-                                           hidden_size=hidden_size,
-                                           conv_type=2)
-
-            self.temporal_model = BiLSTMLayer(rnn_type='LSTM', input_size=hidden_size, hidden_size=hidden_size,
-                                              num_layers=2, bidirectional=True)
-
+            self.conv1d = Module.TemporalConv(input_size=512, hidden_size=hidden_size, convolution_type=2)
+            self.temporal_model = BiLSTMLayer(rnn_type='LSTM', embedding_size=hidden_size, hidden_size=hidden_size, num_layers=2, bidirectional=True)
             self.classifier = Module.NormLinear(hidden_size, self.out_dim)
             self.classifier1 = self.classifier
-
-            self.conv1 = nn.Conv3d(64, 128, kernel_size=(1, 2, 2), stride=(1, 2, 2), padding=(0, 0, 0),
-                                   bias=False)
-            self.conv2 = nn.Conv3d(128, 256, kernel_size=(1, 2, 2), stride=(1, 2, 2), padding=(0, 0, 0),
-                                   bias=False)
-            self.conv3 = nn.Conv3d(256, 512, kernel_size=(1, 2, 2), stride=(1, 2, 2), padding=(0, 0, 0),
-                                   bias=False)
-
+            self.conv1 = nn.Conv3d(64, 128, kernel_size=(1, 2, 2), stride=(1, 2, 2), padding=(0, 0, 0), bias=False)
+            self.conv2 = nn.Conv3d(128, 256, kernel_size=(1, 2, 2), stride=(1, 2, 2), padding=(0, 0, 0), bias=False)
+            self.conv3 = nn.Conv3d(256, 512, kernel_size=(1, 2, 2), stride=(1, 2, 2), padding=(0, 0, 0), bias=False)
             self.batchNorm3d1 = nn.BatchNorm3d(128)
             self.batchNorm3d2 = nn.BatchNorm3d(256)
             self.batchNorm3d3 = nn.BatchNorm3d(512)
-
             self.reLU = nn.ReLU(inplace=True)
         elif "SEN" == self.module_choice:
             hidden_size = hidden_size
             self.conv2d = SEN.resnet18()
             self.conv2d.fc = Module.Identity()
-
-            self.conv1d = Module.TemporalConv(input_size=512,
-                                           hidden_size=hidden_size,
-                                           conv_type=2)
-
-            self.temporal_model = BiLSTMLayer(rnn_type='LSTM', input_size=hidden_size, hidden_size=hidden_size,
-                                              num_layers=2, bidirectional=True)
-
-            self.classifier = nn.Linear(hidden_size, self.out_dim)
-            self.classifier1 = nn.Linear(hidden_size, self.out_dim)
+            self.conv1d = Module.TemporalConv(input_size=512, hidden_size=hidden_size, convolution_type=2)
+            self.temporal_model = BiLSTMLayer(rnn_type='LSTM', embedding_size=hidden_size, hidden_size=hidden_size, num_layers=2, bidirectional=True)
+            self.classifier = nn.Linear(in_features=hidden_size, out_features=self.out_dim)
+            self.classifier1 = nn.Linear(in_features=hidden_size, out_features=self.out_dim)
         elif "TFNet" == self.module_choice:
             hidden_size = hidden_size
             self.conv2d = Module.resnet34mam()
             self.conv2d.fc = Module.Identity()
-
-            self.conv1d = Module.TemporalConv(input_size=512,
-                                           hidden_size=hidden_size,
-                                           conv_type=2)
-
-            self.conv1d1 = Module.TemporalConv(input_size=512,
-                                                 hidden_size=hidden_size,
-                                                 conv_type=2)
-
-            self.temporal_model = BiLSTMLayer(rnn_type='LSTM', input_size=hidden_size, hidden_size=hidden_size,
-                                              num_layers=2, bidirectional=True)
-
-            self.temporal_model1 = BiLSTMLayer(rnn_type='LSTM', input_size=hidden_size, hidden_size=hidden_size,
-                                              num_layers=2, bidirectional=True)
-
+            self.conv1d = Module.TemporalConv(input_size=512, hidden_size=hidden_size, convolution_type=2)
+            self.conv1d1 = Module.TemporalConv(input_size=512, hidden_size=hidden_size, convolution_type=2)
+            self.temporal_model = BiLSTMLayer(rnn_type='LSTM', embedding_size=hidden_size, hidden_size=hidden_size, num_layers=2, bidirectional=True)
+            self.temporal_model1 = BiLSTMLayer(rnn_type='LSTM', embedding_size=hidden_size, hidden_size=hidden_size, num_layers=2, bidirectional=True)
             self.classifier11 = Module.NormLinear(hidden_size, self.out_dim)
             self.classifier22 = self.classifier11
-
             self.classifier33 = Module.NormLinear(hidden_size, self.out_dim)
             self.classifier44 = self.classifier33
-
             self.classifier55 = Module.NormLinear(hidden_size, self.out_dim)
-
             self.reLU = nn.ReLU(inplace=True)
-
+    # 填充
     def pad(self, tensor:torch.Tensor, length:int)->torch.Tensor:
         number=tensor.size(0)
         if number<length:
@@ -198,7 +154,6 @@ class ModuleNet(nn.Module):
         # 当length大于number时对数据进行裁剪（保留目前不知道是否可以这样操作）
         else:
             return tensor[:length]
-
     def forward(self, seq_data, data_len=None, is_train=True):
         out_data_1 = None
         out_data_2 = None
@@ -212,7 +167,7 @@ class ModuleNet(nn.Module):
         len_x = data_len
         # 获取batch_size,temp,channels,height,width
         batch_size, temp, channels, height, width = seq_data.shape
-        # 选择MSTNet模型
+        # 选择MSTNet模型，注意这不是一个经典的MSTNet，可以理解为Multi-Stream Temporal Network（动作识别）
         if "MSTNet" == self.module_choice:
             inputs = seq_data.reshape(batch_size * temp, channels, height, width)
             # 划分数据集
@@ -243,20 +198,21 @@ class ModuleNet(nn.Module):
             frame_wise = torch.cat([self.pad(x1[sum(len_x[:idx]):sum(len_x[:idx + 1])], len_x[0]) for idx, length in enumerate(len_x)])
             # 修改frame_wise的形状
             frame_wise = frame_wise.reshape(batch_size, temp, -1)
-            frame_wise = self.linear1(frame_wise).transpose(1, 2)
+            # 1
+            frame_wise = self.linear1(frame_wise).transpose(1, 2) # 512->hidden_size
             frame_wise = self.batchNorm1d1(frame_wise)
             frame_wise = self.relu(frame_wise).transpose(1, 2)
-            frame_wise = self.linear2(frame_wise).transpose(1, 2)
+            frame_wise = self.linear2(frame_wise).transpose(1, 2) # hidden_size->hidden_size
             frame_wise = self.batchNorm1d2(frame_wise)
-            frame_wise = self.relu(frame_wise)
-            input_data = self.conv1D1_1(frame_wise)
+            frame_wise = self.relu(frame_wise) # (batch_size, temp, hidden_size)
+            input_data = self.conv1D1_1(frame_wise) # (batch_size, temp, hidden_size)
             input_data = self.batchNorm1d1_1(input_data)
             input_data = self.relu(input_data)
-            gloss_candidate = input_data.unsqueeze(2)
-            input_data = self.conv1D1_2(frame_wise)
+            gloss_candidate = input_data.unsqueeze(2) # (batch_size, temp, 1, hidden_size)
+            input_data = self.conv1D1_2(frame_wise) # (batch_size, temp, 1, hidden_size)
             input_data = self.batchNorm1d1_2(input_data)
             input_data = self.relu(input_data)
-            tmp_data = input_data.unsqueeze(2)
+            tmp_data = input_data.unsqueeze(2) # (batch_size, temp, 1, 1, hidden_size)
             gloss_candidate = torch.cat([gloss_candidate, tmp_data], dim=2)
             input_data = self.conv1D1_3(frame_wise)
             input_data = self.batchNorm1d1_3(input_data)
@@ -294,11 +250,12 @@ class ModuleNet(nn.Module):
             input_data = self.conv2D2(gloss_candidate)
             input_data = self.batchNorm2d2(input_data)
             input_data = self.relu(input_data).squeeze(2)
-            if not self.data_set_name == 'CSL':
-                lgt = torch.cat(len_x, dim=0) // 4
+            # if not self.data_set_name == 'CSL':  这里可能存在错误
+            if "CSL" in self.data_set_name:
+                length = torch.cat(len_x, dim=0) // 4
                 x = input_data.permute(0, 2, 1)
             else:
-                lgt = (torch.cat(len_x, dim=0) // 4) - 6
+                length = (torch.cat(len_x, dim=0) // 4) - 6
                 x = input_data.permute(0, 2, 1)
                 x = x[:, 3:-3, :]
             outputs = self.temporal_model(x)
@@ -306,7 +263,8 @@ class ModuleNet(nn.Module):
             log_probs_1 = self.classifier1(outputs)
             outputs = x.permute(1, 0, 2)
             log_probs_2 = self.classifier2(outputs)
-            if not self.data_set_name == 'CSL':
+            # if not self.data_set_name == 'CSL': 这里可能存在错误
+            if "CSL" in self.data_set_name:
                 outputs = input_data_1.permute(2, 0, 1)
                 log_probs_3 = self.classifier3(outputs)
                 outputs = frame_wise.permute(2, 0, 1)
@@ -314,41 +272,38 @@ class ModuleNet(nn.Module):
             log_probs_5 = log_probs_1
         # 选择模型VAC
         elif "VAC" == self.module_choice:
-            batch_size, temp, channels, height, width = seq_data.shape
             inputs = seq_data.reshape(batch_size * temp, channels, height, width)
-            x = torch.cat([inputs[len_x[0] * idx:len_x[0] * idx + lgt] for idx, lgt in enumerate(len_x)])
+            x = torch.cat([inputs[len_x[0] * idx:len_x[0] * idx + length] for idx, length in enumerate(len_x)])
             x = self.conv2d(x)
-            frame_wise = torch.cat([self.pad(x[sum(len_x[:idx]):sum(len_x[:idx + 1])], len_x[0]) for idx, lgt in enumerate(len_x)])
+            frame_wise = torch.cat([self.pad(x[sum(len_x[:idx]):sum(len_x[:idx + 1])], len_x[0]) for idx, length in enumerate(len_x)])
             frame_wise = frame_wise.reshape(batch_size, temp, -1).transpose(1, 2)
             conv1d_outputs = self.conv1d(frame_wise, len_x)
             # x: T, B, C
             x = conv1d_outputs['visual_feat']
-            lgt = conv1d_outputs['feat_len']
+            length = conv1d_outputs['feat_len']
             x = x.permute(2, 0, 1)
-            lgt = torch.cat(lgt, dim=0)
-            outputs = self.temporal_model(x, lgt)
-            encoderPrediction = self.classifier(outputs['predictions'])
-            log_probs_1 = encoderPrediction
-            encoderPrediction = self.classifier1(x)
-            log_probs_2 = encoderPrediction
+            length = torch.cat(length, dim=0)
+            outputs = self.temporal_model(x, length)
+            encoder_prediction = self.classifier(outputs['predictions'])
+            log_probs_1 = encoder_prediction
+            encoder_prediction = self.classifier1(x)
+            log_probs_2 = encoder_prediction
         elif "CorrNet" == self.module_choice:
-            batch_size, temp, channels, height, width = seq_data.shape
             x = seq_data.transpose(1, 2)
             frame_wise = self.conv2d(x)
             frame_wise = frame_wise.reshape(batch_size, temp, -1).transpose(1, 2)
             conv1d_outputs = self.conv1d(frame_wise, len_x)
             # x: T, B, C
             x = conv1d_outputs['visual_feat']
-            lgt = conv1d_outputs['feat_len']
+            length = conv1d_outputs['feat_len']
             x = x.permute(2, 0, 1)
-            lgt = torch.cat(lgt, dim=0)
-            outputs = self.temporal_model(x, lgt)
-            encoderPrediction = self.classifier(outputs['predictions'])
-            log_probs_1 = encoderPrediction
-            encoderPrediction = self.classifier1(x)
-            log_probs_2 = encoderPrediction
+            length = torch.cat(length, dim=0)
+            outputs = self.temporal_model(x, length)
+            encoder_prediction = self.classifier(outputs['predictions'])
+            log_probs_1 = encoder_prediction
+            encoder_prediction = self.classifier1(x)
+            log_probs_2 = encoder_prediction
         elif "MAM-FSD" == self.module_choice:
-            batch_size, temp, channels, height, width = seq_data.shape
             x = seq_data.transpose(1, 2)
             frame_wise, out_data_1, out_data_2, out_data_3 = self.conv2d(x)
             tmpOut = self.conv1(out_data_1[0])
@@ -364,34 +319,32 @@ class ModuleNet(nn.Module):
             conv1d_outputs = self.conv1d(frame_wise, len_x)
             # x: T, B, C
             x = conv1d_outputs['visual_feat']
-            lgt = conv1d_outputs['feat_len']
+            length = conv1d_outputs['feat_len']
             x = x.permute(2, 0, 1)
-            lgt = torch.cat(lgt, dim=0)
-            outputs = self.temporal_model(x, lgt)
-            encoderPrediction = self.classifier(outputs['predictions'])
-            log_probs_1 = encoderPrediction
-            encoderPrediction = self.classifier1(x)
-            log_probs_2 = encoderPrediction
+            length = torch.cat(length, dim=0)
+            outputs = self.temporal_model(x, length)
+            encoder_prediction = self.classifier(outputs['predictions'])
+            log_probs_1 = encoder_prediction
+            encoder_prediction = self.classifier1(x)
+            log_probs_2 = encoder_prediction
             log_probs_3 = None
             log_probs_4 = None
         elif "SEN" == self.module_choice:
-            batch_size, temp, channels, height, width = seq_data.shape
             x = seq_data.transpose(1, 2)
             frame_wise = self.conv2d(x)
             frame_wise = frame_wise.reshape(batch_size, temp, -1).transpose(1, 2)
             conv1d_outputs = self.conv1d(frame_wise, len_x)
             # x: T, B, C
             x = conv1d_outputs['visual_feat']
-            lgt = conv1d_outputs['feat_len']
+            length = conv1d_outputs['feat_len']
             x = x.permute(2, 0, 1)
-            lgt = torch.cat(lgt, dim=0)
-            outputs = self.temporal_model(x, lgt)
-            encoderPrediction = self.classifier(outputs['predictions'])
-            log_probs_1 = encoderPrediction
-            encoderPrediction = self.classifier1(x)
-            log_probs_2 = encoderPrediction
+            length = torch.cat(length, dim=0)
+            outputs = self.temporal_model(x, length)
+            encoder_prediction = self.classifier(outputs['predictions'])
+            log_probs_1 = encoder_prediction
+            encoder_prediction = self.classifier1(x)
+            log_probs_2 = encoder_prediction
         elif "TFNet" == self.module_choice:
-            batch_size, temp, channels, height, width = seq_data.shape
             x = seq_data.transpose(1, 2)
             frame_wise, out_data_1, out_data_2, out_data_3 = self.conv2d(x)
             frame_wise = frame_wise.reshape(batch_size, temp, -1).transpose(1, 2)
@@ -403,28 +356,28 @@ class ModuleNet(nn.Module):
             conv1d_outputs = self.conv1d(frame_wise, len_x)
             # x: T, B, C
             x = conv1d_outputs['visual_feat']
-            lgt = conv1d_outputs['feat_len']
+            length = conv1d_outputs['feat_len']
             x = x.permute(2, 0, 1)
-            lgt = torch.cat(lgt, dim=0)
+            length = torch.cat(length, dim=0)
             conv1d_outputs1 = self.conv1d1(framewise1, len_x)
             # x: T, B, C
             x1 = conv1d_outputs1['visual_feat']
             x1 = x1.permute(2, 0, 1)
-            outputs = self.temporal_model(x, lgt)
-            outputs1 = self.temporal_model1(x1, lgt)
-            encoderPrediction = self.classifier11(outputs['predictions'])
-            log_probs_1 = encoderPrediction
-            encoderPrediction = self.classifier22(x)
-            log_probs_2 = encoderPrediction
-            encoderPrediction = self.classifier33(outputs1['predictions'])
-            log_probs_3 = encoderPrediction
-            encoderPrediction = self.classifier44(x1)
-            log_probs_4 = encoderPrediction
+            outputs = self.temporal_model(x, length)
+            outputs1 = self.temporal_model1(x1, length)
+            encoder_prediction = self.classifier11(outputs['predictions'])
+            log_probs_1 = encoder_prediction
+            encoder_prediction = self.classifier22(x)
+            log_probs_2 = encoder_prediction
+            encoder_prediction = self.classifier33(outputs1['predictions'])
+            log_probs_3 = encoder_prediction
+            encoder_prediction = self.classifier44(x1)
+            log_probs_4 = encoder_prediction
             x2 = outputs['predictions'] + outputs1['predictions']
             log_probs_5 = self.classifier55(x2)
             if not is_train:
                 log_probs_1 = log_probs_5
-        return log_probs_1, log_probs_2, log_probs_3, log_probs_4, log_probs_5, lgt, out_data_1, out_data_2, out_data_3
+        return log_probs_1, log_probs_2, log_probs_3, log_probs_4, log_probs_5, length, out_data_1, out_data_2, out_data_3
 
 if __name__=="__main__":
     x=torch.randn(size=(20,3,512,512))
