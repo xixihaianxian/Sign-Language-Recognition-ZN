@@ -8,6 +8,7 @@ import numpy as np
 import Transformer
 import os
 from torch.hub import load_state_dict_from_url
+from loguru import logger
 
 class ModuleNet(nn.Module):
     def __init__(self, hidden_size, word_set_num:int, module_choice="Seq2Seq", device=torch.device("cuda"), data_set_name='RWTH', is_flag=False, download_weights=True, module_dir="~/model"):
@@ -91,12 +92,13 @@ class ModuleNet(nn.Module):
                 self.classifier4 = Module.NormLinear(input_size, self.out_dim)
         elif "VAC" == self.module_choice:
             # 登录模型
-            self.conv2d = getattr(models, "resnet18")(weights=None)
+            self.feature_extraction = getattr(models, "resnet18")(weights=None)
             state_dict=torch.load(f=os.path.join(self.module_dir,"resnet18.pth"))
-            self.load_state_dict(state_dict)
+            self.feature_extraction.load_state_dict(state_dict)
+            self.feature_extraction.fc = Module.Identity()
             # 设置参数
             hidden_size = hidden_size
-            self.conv2d.fc = Module.Identity()
+            # 构建必要的模块
             self.conv1d = Module.TemporalConv(input_size=512, hidden_size=hidden_size, convolution_type=2)
             self.temporal_model = BiLSTMLayer(rnn_type='LSTM', embedding_size=hidden_size, hidden_size=hidden_size, num_layers=2, bidirectional=True)
             self.classifier = Module.NormLinear(hidden_size, self.out_dim)
@@ -149,12 +151,12 @@ class ModuleNet(nn.Module):
     # 填充
     def pad(self, tensor:torch.Tensor, length:int)->torch.Tensor:
         number=tensor.size(0)
-        if number<length:
+        if number<=length:
             return torch.cat([tensor, tensor.new(length - tensor.size(0), *tensor.size()[1:]).zero_()])
         # 当length大于number时对数据进行裁剪（保留目前不知道是否可以这样操作）
         else:
             return tensor[:length]
-    def forward(self, seq_data, data_len=None, is_train=True):
+    def forward(self, seq_data, data_len:torch.Tensor=None, is_train=True):
         out_data_1 = None
         out_data_2 = None
         out_data_3 = None
@@ -163,6 +165,11 @@ class ModuleNet(nn.Module):
         log_probs_3 = None
         log_probs_4 = None
         log_probs_5 = None
+        # 检测data_len是否符合要求
+        if data_len.dim()==1:
+            logger.warning(f"Please check the dimensions of data_len! The dimension of data_len should be 2.")
+            # 对输入的data_len进行修正
+            data_len=data_len.unsqueeze(1)
         # 设置len_x
         len_x = data_len
         # 获取batch_size,temp,channels,height,width
@@ -250,7 +257,7 @@ class ModuleNet(nn.Module):
             input_data = self.conv2D2(gloss_candidate)
             input_data = self.batchNorm2d2(input_data)
             input_data = self.relu(input_data).squeeze(2)
-            # if not self.data_set_name == 'CSL':  这里可能存在错误
+            # if not self.data_set_name == 'CSL':  这里可能存在错误，因为并不存在名为CSL的数据集
             if "CSL" in self.data_set_name:
                 length = torch.cat(len_x, dim=0) // 4
                 x = input_data.permute(0, 2, 1)
@@ -272,13 +279,13 @@ class ModuleNet(nn.Module):
             log_probs_5 = log_probs_1
         # 选择模型VAC
         elif "VAC" == self.module_choice:
-            inputs = seq_data.reshape(batch_size * temp, channels, height, width)
+            inputs = seq_data.reshape(batch_size * temp, channels, height, width) # input(batch_size*temp, channels, height, width)
+            # TODO 研究到这
             x = torch.cat([inputs[len_x[0] * idx:len_x[0] * idx + length] for idx, length in enumerate(len_x)])
-            x = self.conv2d(x)
+            x = self.feature_extraction(x)
             frame_wise = torch.cat([self.pad(x[sum(len_x[:idx]):sum(len_x[:idx + 1])], len_x[0]) for idx, length in enumerate(len_x)])
             frame_wise = frame_wise.reshape(batch_size, temp, -1).transpose(1, 2)
             conv1d_outputs = self.conv1d(frame_wise, len_x)
-            # x: T, B, C
             x = conv1d_outputs['visual_feat']
             length = conv1d_outputs['feat_len']
             x = x.permute(2, 0, 1)
@@ -378,9 +385,27 @@ class ModuleNet(nn.Module):
             if not is_train:
                 log_probs_1 = log_probs_5
         return log_probs_1, log_probs_2, log_probs_3, log_probs_4, log_probs_5, length, out_data_1, out_data_2, out_data_3
-
 if __name__=="__main__":
-    x=torch.randn(size=(20,3,512,512))
-    resnet34=models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
-    resnet34.fc=Module.Identity()
-    print(resnet34)
+    batch_size = 2
+    temp = 16
+    channels = 3
+    height = 224
+    width = 224
+    word_set_num = 100
+    hidden_size = 512
+    seq_data = torch.randn(batch_size, temp, channels, height, width)
+    data_len=torch.tensor([temp,temp])
+    model = ModuleNet(
+        hidden_size=hidden_size,
+        word_set_num=word_set_num,
+        module_choice="VAC",
+        device=torch.device("cpu"),
+        data_set_name='RWTH',
+        download_weights=False,
+        module_dir="./resnet"
+    )
+    with torch.no_grad():
+        outputs = model(seq_data, data_len=data_len, is_train=True)
+    log_probs_1, log_probs_2, log_probs_3, log_probs_4, log_probs_5, length, out1, out2, out3 = outputs
+    print("log_probs_1 shape:", log_probs_1.shape)
+    print("length:", length)
