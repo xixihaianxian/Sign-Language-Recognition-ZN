@@ -9,6 +9,7 @@ import Transformer
 import os
 from torch.hub import load_state_dict_from_url
 from loguru import logger
+import numbers
 
 class ModuleNet(nn.Module):
     def __init__(self, hidden_size, word_set_num:int, module_choice="Seq2Seq", device=torch.device("cuda"), data_set_name='RWTH', is_flag=False, download_weights=True, module_dir="~/model"):
@@ -101,20 +102,21 @@ class ModuleNet(nn.Module):
             # 构建必要的模块
             self.conv1d = Module.TemporalConv(input_size=512, hidden_size=hidden_size, convolution_type=2)
             self.temporal_model = BiLSTMLayer(rnn_type='LSTM', embedding_size=hidden_size, hidden_size=hidden_size, num_layers=2, bidirectional=True)
-            self.classifier = Module.NormLinear(hidden_size, self.out_dim)
+            self.classifier = Module.NormLinear(hidden_size, self.out_dim) # 分类头
             self.classifier1 = self.classifier
         elif "CorrNet" == self.module_choice:
             hidden_size = hidden_size
-            self.conv2d = Module.resnet18corr()
-            self.conv2d.fc = Module.Identity()
+            self.feature_extraction = Module.resnet18corr()
+            self.feature_extraction.fc = Module.Identity()
             self.conv1d = Module.TemporalConv(input_size=512, hidden_size=hidden_size, convolution_type=2)
             self.temporal_model = BiLSTMLayer(rnn_type='LSTM', embedding_size=hidden_size, hidden_size=hidden_size, num_layers=2, bidirectional=True)
             self.classifier = Module.NormLinear(hidden_size, self.out_dim)
             self.classifier1 = self.classifier
+        # https://arxiv.org/pdf/2402.19118
         elif "MAM-FSD" == self.module_choice:
             hidden_size = hidden_size
-            self.conv2d = Module.resnet34mam()
-            self.conv2d.fc = Module.Identity()
+            self.feature_extraction = Module.resnet34mam()
+            self.feature_extraction.fc = Module.Identity()
             self.conv1d = Module.TemporalConv(input_size=512, hidden_size=hidden_size, convolution_type=2)
             self.temporal_model = BiLSTMLayer(rnn_type='LSTM', embedding_size=hidden_size, hidden_size=hidden_size, num_layers=2, bidirectional=True)
             self.classifier = Module.NormLinear(hidden_size, self.out_dim)
@@ -149,7 +151,12 @@ class ModuleNet(nn.Module):
             self.classifier55 = Module.NormLinear(hidden_size, self.out_dim)
             self.reLU = nn.ReLU(inplace=True)
     # 填充
-    def pad(self, tensor:torch.Tensor, length:int)->torch.Tensor:
+    def pad(self, tensor:torch.Tensor, length)->torch.Tensor:
+        # 对length进行处理
+        if isinstance(length,numbers.Number):
+            pass
+        elif isinstance(length,torch.Tensor):
+            length=length.item()
         number=tensor.size(0)
         if number<=length:
             return torch.cat([tensor, tensor.new(length - tensor.size(0), *tensor.size()[1:]).zero_()])
@@ -280,11 +287,11 @@ class ModuleNet(nn.Module):
         # 选择模型VAC
         elif "VAC" == self.module_choice:
             inputs = seq_data.reshape(batch_size * temp, channels, height, width) # input(batch_size*temp, channels, height, width)
-            # TODO 研究到这
-            x = torch.cat([inputs[len_x[0] * idx:len_x[0] * idx + length] for idx, length in enumerate(len_x)])
-            x = self.feature_extraction(x)
+            # 当len_x每一个length不相等的时候可能会出现bug
+            x = torch.cat([inputs[len_x[0] * idx:len_x[0] * idx + length] for idx, length in enumerate(len_x)]) # x(batch_size*temp, channels, height, width)
+            x = self.feature_extraction(x) # x(batch_size*temp, 512)
             frame_wise = torch.cat([self.pad(x[sum(len_x[:idx]):sum(len_x[:idx + 1])], len_x[0]) for idx, length in enumerate(len_x)])
-            frame_wise = frame_wise.reshape(batch_size, temp, -1).transpose(1, 2)
+            frame_wise = frame_wise.reshape(batch_size, temp, -1).transpose(1, 2) # frame_wise(batch_size, 512, temp)
             conv1d_outputs = self.conv1d(frame_wise, len_x)
             x = conv1d_outputs['visual_feat']
             length = conv1d_outputs['feat_len']
@@ -295,47 +302,57 @@ class ModuleNet(nn.Module):
             log_probs_1 = encoder_prediction
             encoder_prediction = self.classifier1(x)
             log_probs_2 = encoder_prediction
+        # 选着CorrNet模型
         elif "CorrNet" == self.module_choice:
-            x = seq_data.transpose(1, 2)
-            frame_wise = self.conv2d(x)
+            x = seq_data.transpose(1, 2) # x(batch_size, channels, temp, height, width)
+            # 逐帧特征提取器
+            frame_wise = self.feature_extraction(x) # (128, 512)
+            # 重塑特征是时序序列
             frame_wise = frame_wise.reshape(batch_size, temp, -1).transpose(1, 2)
+            # 时序建模
             conv1d_outputs = self.conv1d(frame_wise, len_x)
-            # x: T, B, C
             x = conv1d_outputs['visual_feat']
             length = conv1d_outputs['feat_len']
             x = x.permute(2, 0, 1)
-            length = torch.cat(length, dim=0)
+            length = torch.cat(length, dim=0) # 将length转化为二维的张量
+            # 时序卷积下采样
             outputs = self.temporal_model(x, length)
+            # 分类头
             encoder_prediction = self.classifier(outputs['predictions'])
             log_probs_1 = encoder_prediction
             encoder_prediction = self.classifier1(x)
             log_probs_2 = encoder_prediction
+        # 选择MAM-FSD模型(多级注意力运动感知特征序列解码器)
         elif "MAM-FSD" == self.module_choice:
-            x = seq_data.transpose(1, 2)
-            frame_wise, out_data_1, out_data_2, out_data_3 = self.conv2d(x)
-            tmpOut = self.conv1(out_data_1[0])
-            tmpOut = self.batchNorm3d1(tmpOut)
-            out_data_1[0] = self.reLU(tmpOut)
-            tmpOut = self.conv2(out_data_2[0])
-            tmpOut = self.batchNorm3d2(tmpOut)
-            out_data_2[0] = self.reLU(tmpOut)
-            tmpOut = self.conv3(out_data_3[0])
-            tmpOut = self.batchNorm3d3(tmpOut)
-            out_data_3[0] = self.reLU(tmpOut)
+            x = seq_data.transpose(1, 2) #x(batch_size, channels, temp, height, width)
+            # 3D视觉主干网络，提取时空特征，并在多层级引入时间维度的运动注意力机制
+            frame_wise, out_data_1, out_data_2, out_data_3 = self.feature_extraction(x)
+            # 对数据进行下采样和时序建模
+            tmp_out = self.conv1(out_data_1[0])
+            tmp_out = self.batchNorm3d1(tmp_out)
+            out_data_1[0] = self.reLU(tmp_out)
+            tmp_out = self.conv2(out_data_2[0])
+            tmp_out = self.batchNorm3d2(tmp_out)
+            out_data_2[0] = self.reLU(tmp_out)
+            tmp_out = self.conv3(out_data_3[0])
+            tmp_out = self.batchNorm3d3(tmp_out)
+            out_data_3[0] = self.reLU(tmp_out)
             frame_wise = frame_wise.reshape(batch_size, temp, -1).transpose(1, 2)
             conv1d_outputs = self.conv1d(frame_wise, len_x)
-            # x: T, B, C
             x = conv1d_outputs['visual_feat']
             length = conv1d_outputs['feat_len']
             x = x.permute(2, 0, 1)
             length = torch.cat(length, dim=0)
+            # 建模长距离时序依赖
             outputs = self.temporal_model(x, length)
+            # 分类头
             encoder_prediction = self.classifier(outputs['predictions'])
             log_probs_1 = encoder_prediction
             encoder_prediction = self.classifier1(x)
             log_probs_2 = encoder_prediction
             log_probs_3 = None
             log_probs_4 = None
+        # 选择SEN模型
         elif "SEN" == self.module_choice:
             x = seq_data.transpose(1, 2)
             frame_wise = self.conv2d(x)
@@ -351,6 +368,7 @@ class ModuleNet(nn.Module):
             log_probs_1 = encoder_prediction
             encoder_prediction = self.classifier1(x)
             log_probs_2 = encoder_prediction
+        # 选择TFNet模型
         elif "TFNet" == self.module_choice:
             x = seq_data.transpose(1, 2)
             frame_wise, out_data_1, out_data_2, out_data_3 = self.conv2d(x)
@@ -387,7 +405,7 @@ class ModuleNet(nn.Module):
         return log_probs_1, log_probs_2, log_probs_3, log_probs_4, log_probs_5, length, out_data_1, out_data_2, out_data_3
 if __name__=="__main__":
     batch_size = 2
-    temp = 16
+    temp = 64
     channels = 3
     height = 224
     width = 224
@@ -398,7 +416,7 @@ if __name__=="__main__":
     model = ModuleNet(
         hidden_size=hidden_size,
         word_set_num=word_set_num,
-        module_choice="VAC",
+        module_choice="MAM-FSD",
         device=torch.device("cpu"),
         data_set_name='RWTH',
         download_weights=False,
