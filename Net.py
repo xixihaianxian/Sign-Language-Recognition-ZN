@@ -130,16 +130,17 @@ class ModuleNet(nn.Module):
             self.reLU = nn.ReLU(inplace=True)
         elif "SEN" == self.module_choice:
             hidden_size = hidden_size
-            self.conv2d = SEN.resnet18()
-            self.conv2d.fc = Module.Identity()
+            # 特征提取
+            self.feature_extraction = SEN.resnet18()
+            self.feature_extraction.fc = Module.Identity()
             self.conv1d = Module.TemporalConv(input_size=512, hidden_size=hidden_size, convolution_type=2)
             self.temporal_model = BiLSTMLayer(rnn_type='LSTM', embedding_size=hidden_size, hidden_size=hidden_size, num_layers=2, bidirectional=True)
             self.classifier = nn.Linear(in_features=hidden_size, out_features=self.out_dim)
             self.classifier1 = nn.Linear(in_features=hidden_size, out_features=self.out_dim)
         elif "TFNet" == self.module_choice:
             hidden_size = hidden_size
-            self.conv2d = Module.resnet34mam()
-            self.conv2d.fc = Module.Identity()
+            self.feature_extraction = Module.resnet34mam()
+            self.feature_extraction.fc = Module.Identity()
             self.conv1d = Module.TemporalConv(input_size=512, hidden_size=hidden_size, convolution_type=2)
             self.conv1d1 = Module.TemporalConv(input_size=512, hidden_size=hidden_size, convolution_type=2)
             self.temporal_model = BiLSTMLayer(rnn_type='LSTM', embedding_size=hidden_size, hidden_size=hidden_size, num_layers=2, bidirectional=True)
@@ -355,10 +356,9 @@ class ModuleNet(nn.Module):
         # 选择SEN模型
         elif "SEN" == self.module_choice:
             x = seq_data.transpose(1, 2)
-            frame_wise = self.conv2d(x)
+            frame_wise = self.feature_extraction(x)
             frame_wise = frame_wise.reshape(batch_size, temp, -1).transpose(1, 2)
             conv1d_outputs = self.conv1d(frame_wise, len_x)
-            # x: T, B, C
             x = conv1d_outputs['visual_feat']
             length = conv1d_outputs['feat_len']
             x = x.permute(2, 0, 1)
@@ -371,7 +371,7 @@ class ModuleNet(nn.Module):
         # 选择TFNet模型
         elif "TFNet" == self.module_choice:
             x = seq_data.transpose(1, 2)
-            frame_wise, out_data_1, out_data_2, out_data_3 = self.conv2d(x)
+            frame_wise, out_data_1, out_data_2, out_data_3 = self.feature_extraction(x)
             frame_wise = frame_wise.reshape(batch_size, temp, -1).transpose(1, 2)
             # 傅里叶变换
             framewise1 = frame_wise.transpose(1, 2).float()
@@ -379,26 +379,29 @@ class ModuleNet(nn.Module):
             X = torch.abs(X)
             framewise1 = X.transpose(1, 2)
             conv1d_outputs = self.conv1d(frame_wise, len_x)
-            # x: T, B, C
             x = conv1d_outputs['visual_feat']
             length = conv1d_outputs['feat_len']
             x = x.permute(2, 0, 1)
             length = torch.cat(length, dim=0)
             conv1d_outputs1 = self.conv1d1(framewise1, len_x)
-            # x: T, B, C
             x1 = conv1d_outputs1['visual_feat']
             x1 = x1.permute(2, 0, 1)
             outputs = self.temporal_model(x, length)
             outputs1 = self.temporal_model1(x1, length)
+            # 时域BiLSTM的输出
             encoder_prediction = self.classifier11(outputs['predictions'])
             log_probs_1 = encoder_prediction
+            # 时域TemporalConv的原始输出
             encoder_prediction = self.classifier22(x)
             log_probs_2 = encoder_prediction
+            # 频域BiLSTM的输出
             encoder_prediction = self.classifier33(outputs1['predictions'])
             log_probs_3 = encoder_prediction
+            # 频域TemporalConv的原始输出
             encoder_prediction = self.classifier44(x1)
             log_probs_4 = encoder_prediction
             x2 = outputs['predictions'] + outputs1['predictions']
+            # 时域+频域BiLSTM输出之和
             log_probs_5 = self.classifier55(x2)
             if not is_train:
                 log_probs_1 = log_probs_5
@@ -416,7 +419,7 @@ if __name__=="__main__":
     model = ModuleNet(
         hidden_size=hidden_size,
         word_set_num=word_set_num,
-        module_choice="MAM-FSD",
+        module_choice="TFNet",
         device=torch.device("cpu"),
         data_set_name='RWTH',
         download_weights=False,

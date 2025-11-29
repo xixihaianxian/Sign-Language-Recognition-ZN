@@ -6,6 +6,7 @@ from typing import List
 import math
 from loguru import logger
 from torch.hub import load_state_dict_from_url
+from typing import Dict
 
 model_urls = {
     'resnet18': 'https://download.pytorch.org/models/resnet18-f37072fd.pth',
@@ -83,7 +84,7 @@ class TemporalConv(nn.Module):
             else:
                 feature_length = [(length - param + 1) for length in feature_length]
         return feature_length
-    def forward(self, frame_feature:torch.Tensor, lengths):
+    def forward(self, frame_feature:torch.Tensor, lengths)->Dict[str,List[torch.Tensor]]:
         visual_feature = self.temporal_convolution(frame_feature)
         lengths = self.update_length(lengths)
         return {
