@@ -4,6 +4,8 @@ import random
 import os
 from torch.utils.data import DataLoader
 from typing import Dict
+import readconfig
+import DataPreprocessing
 
 # 设置随机种子，提高代码的复现可能性
 def seed_torch(seed=0):
@@ -43,3 +45,24 @@ def train(config_params:Dict[str,str],is_train=True):
     module_choice = config_params["moduleChoice"]
     data_set_name = config_params["dataSetName"]
     max_num_states = 1
+    # RWTH数据集的处理
+    if data_set_name == "RWTH":
+        source_file_path = './evaluation/wer/evalute'
+        if is_train:
+            file_name = f"output-hypothesis-dev.ctm"
+        else:
+            file_name = f"output-hypothesis-test.ctm"
+        file_path = os.path.join(source_file_path, file_name)
+    # 对RWTH-T数据集的处理
+    elif data_set_name == "RWTH-T":
+        source_file_path = './evaluationT/wer/evalute'
+        if is_train:
+            file_name = f"output-hypothesis-dev.ctm"
+        else:
+            file_name = f"output-hypothesis-test.ctm"
+        file_path = os.path.join(source_file_path, file_name)
+    # 预处理语言数据
+    word2id, word_number, id2word = DataPreprocessing.word2id(train_label_path=trainLabelPath, valid_label_path=validLabelPath, test_label_path=testLabelPath, data_set_name=data_set_name)
+if __name__=="__main__":
+    config_params=readconfig.read_config()
+    train(config_params)

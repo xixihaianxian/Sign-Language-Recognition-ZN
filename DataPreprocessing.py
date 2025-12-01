@@ -60,7 +60,7 @@ def handle_words(words:List[str])->List[str]:
             if not word[0].isdigit():
                 word=word[:-1]
         # 统一符号
-        if word[0]=="," or word[0]=="，": #TODO 如何使用分词的话这里需要进行相应的修改
+        if word[0]=="," or word[0]=="，": #TODO 如果使用分词的话这里需要进行相应的修改
             word="，"+word[1:]
         if word[0]=="?" or word[0]=="？":
             word="？"+word[1:]
@@ -123,19 +123,19 @@ def word2id(train_label_path:str=None,valid_label_path:str=None,test_label_path:
         # 处理valid data
         if not check_param_status(valid_label_path=valid_label_path):
             valid_df=pd.read_csv(valid_label_path,sep=",")
-            valid_gloss=valid_df[:,"Gloss"]
+            valid_gloss=valid_df.loc[:,"Gloss"]
             for gloss in valid_gloss:
                 words=gloss.split("/")
                 words=handle_words(words)
-                word_list.append(words)
+                word_list.extend(words)
         # 处理test data
         if not check_param_status(test_label_path=test_label_path):
             test_df=pd.read_csv(test_label_path,sep=",")
-            test_gloss=test_df[:,"Gloss"]
+            test_gloss=test_df.loc[:,"Gloss"]
             for gloss in test_gloss:
                 words=gloss.split("/")
                 words=handle_words(words)
-                word_list.append(words)
+                word_list.extend(words)
     # 处理RWTH-T
     elif data_set_name == "RWTH-T":
         label_paths_name = ["train_label_path", "test_label_path", "valid_label_path"]
@@ -164,7 +164,7 @@ def word2id(train_label_path:str=None,valid_label_path:str=None,test_label_path:
     idx2word=[PAD] # 将pad加入到idx2word
     word_set=sorted(list(set(word_list)))
     idx2word.extend(word_set)
-    word2idx=dict(set((word,index) for index,word in enumerate(idx2word)))
+    word2idx=dict(list((word,index) for index,word in enumerate(idx2word)))
     # word_number=len(idx2word) # TODO len(word2id)比较合理
     word_number=len(idx2word)-1
     # 返回word2idx，词的数量，idx2word
@@ -176,7 +176,7 @@ class BaseSignLanguageDataset(data.Dataset):
         # 构建属性
         self.image_dir_path=image_dir_path # 存放图片的文件夹
         self.label_path=label_path # label文件路径
-        self.word2dix=word2idx # word->idx
+        self.word2idx=word2idx # word->idx
         self.data_set_name=data_set_name # 数据集名称
         self.is_train=is_train # 是否是训练
         self.transform=transform # 是否对图像进行增强
@@ -200,7 +200,7 @@ class BaseSignLanguageDataset(data.Dataset):
         text_to_id=list()
         for word in words:
             try:
-                text_to_id.append(self.word2dix[word]) # TODO 一般来说是一定会存在的，因为我构建词集的时候是将所有的词都加入到word_list里面的
+                text_to_id.append(self.word2idx[word]) # TODO 一般来说是一定会存在的，因为我构建词集的时候是将所有的词都加入到word_list里面的
             except KeyError:
                 raise KeyError(f"The {word} key does not exist")
         return text_to_id
@@ -312,7 +312,7 @@ class CSLDailyDataset(BaseSignLanguageDataset):
         info=data["info"]
         for item in info:
             gloss=item.get("label_gloss") # 使用get来获取gloss
-            if gloss is not None: # 如果gloss不存在返回None
+            if gloss is None: # 如果gloss不存在返回None
                 raise KeyError(f"No gloss found about {item.get('name')}")
             else:
                 label[item.get("name")]=self.process_label(gloss)
@@ -340,7 +340,7 @@ class custom_defaultdict(defaultdict):
 # 设置collate_fn函数，可用于之后的DataLoader,同时处理样本
 # 论文参考1. https://arxiv.org/pdf/2402.19118 2. https://arxiv.org/pdf/1910.06709 3. https://arxiv.org/pdf/2311.07623
 def collate_fn(batch):
-    collated=custom_defaultdict()
+    collated=custom_defaultdict(list) # 设置默认类型
     # 对batch进行排序
     batch=list(sorted(batch,key=lambda x:len(x["video"]),reverse=True))
     # 获取视频时间最长的视频的总帧

@@ -43,6 +43,7 @@ def read_config():
         config_params["batchSize"]=cf.get("Params","batchSize")
         config_params["numWorkers"]=cf.get("Params","numWorkers")
         config_params["pinMemory"]=cf.get("Params","pinMemory")
+        config_params["moduleChoice"] = cf.get("Params", "moduleChoice")
         config_params["dataSetName"]=cf.get("Params","dataSetName")
         # 判断是否存在GPU
         if torch.cuda.is_available():
