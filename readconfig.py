@@ -19,7 +19,7 @@ def read_config():
         "lr": 0.1,
         "batchSize": 1,
         "numWorkers": 2,
-        "pinmMemory": 1,
+        "pinMemory": 1,
         "dataSetName": "CE-CSL",
     }
     # 获取自定义参数
@@ -42,7 +42,7 @@ def read_config():
         config_params["lr"]=cf.get("Params","lr")
         config_params["batchSize"]=cf.get("Params","batchSize")
         config_params["numWorkers"]=cf.get("Params","numWorkers")
-        config_params["pinmMemory"]=cf.get("Params","pinmMemory")
+        config_params["pinMemory"]=cf.get("Params","pinMemory")
         config_params["dataSetName"]=cf.get("Params","dataSetName")
         # 判断是否存在GPU
         if torch.cuda.is_available():
