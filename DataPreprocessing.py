@@ -76,10 +76,18 @@ def handle_words(words:List[str])->List[str]:
 # 建word到id的映射
 def word2id(train_label_path:str=None,valid_label_path:str=None,test_label_path:str=None,data_set_name:str="CSL-Daily"):
     r"""
-    train_label_path: 训练标签文件地址
-    valid_label_path: 验证标签文件地址
-    test_label_path: 测试标签文件地址
-    data_set_name: 数据集名称（默认为CSL-Daily）
+    构造 word2idx,word_number,idx2word
+
+    :param:
+        train_label_path: 训练标签文件地址
+        valid_label_path: 验证标签文件地址
+        test_label_path: 测试标签文件地址
+        data_set_name: 数据集名称（默认为CSL-Daily）
+
+    :return:
+        word2idx: word->id
+        word_number: word number
+        idx2word: id->word
     """
     PAD="<pad>"
     # 定义word list
@@ -157,6 +165,9 @@ def word2id(train_label_path:str=None,valid_label_path:str=None,test_label_path:
     # 处理CSL-Daily
     elif data_set_name=="CSL-Daily":
         words_pkl=config.CSL_Daily_Data_PATH
+        if not os.path.exists(words_pkl): # 如果文件不存在时，直接报错
+            logger.error(f"Please check path {words_pkl}, This path doesn't seem to exist!")
+            raise FileNotFoundError(f"Please check path {words_pkl}, This path doesn't seem to exist!")
         with open(words_pkl,mode="rb") as pkl:
             information=pickle.load(pkl)
             word_list=handle_words(information["gloss_map"])
@@ -448,3 +459,4 @@ class SeqKD(nn.Module):
         
 if __name__=="__main__":
     word2idx,word_number,idx2word=word2id()
+    print(word2idx)

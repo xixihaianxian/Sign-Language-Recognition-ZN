@@ -3,9 +3,12 @@ import numpy as np
 import random
 import os
 from torch.utils.data import DataLoader
-from typing import Dict
+from typing import Dict,Any
 import readconfig
 import DataPreprocessing
+import VideoEnhancement
+import Net
+from torch import nn
 
 # 设置随机种子，提高代码的复现可能性
 def seed_torch(seed=0):
@@ -22,21 +25,35 @@ def stable(dataloader,seed):
     seed_torch(seed)
     return dataloader
 
+# 损失函数
+def loss_function(module_choice:str):
+    pad_idx=0
+    ctc_loss=None
+    kld=None
+    if module_choice=="MSTNet":
+        ctc_loss=nn.CTCLoss(blank=pad_idx,reduction="mean",zero_infinity=True)
+    elif module_choice=="VAC" or module_choice=="CorrNet" or module_choice=="MAM-FSD" or module_choice=="SEN" or module_choice=="TFNet":
+        ctc_loss=nn.CTCLoss(blank=pad_idx,reduction="none",zero_infinity=True)
+        kld=DataPreprocessing.SeqKD(T=8)
+        # if module_choice=="MAM-FSD":
+        #     mean_loss=nn.MSELoss(reduction="mean")
+    return ctc_loss,kld
+
 # 训练
-def train(config_params:Dict[str,str],is_train=True):
+def train(config_params:Dict[str,Any],is_train=True):
     # 初始化数据路径参数
-    trainDatPath=config_params["trainDataPath"]
-    validDataPath=config_params["validDataPath"]
-    testDataPath=config_params["testDataPath"]
+    train_data_path=config_params["trainDataPath"]
+    valid_data_path=config_params["valid_data_path"]
+    test_data_path=config_params["test_data_path"]
     # 初始化标签路径参数
-    trainLabelPath=config_params["trainLabelPath"]
-    validLabelPath=config_params["validLabelPath"]
-    testLabelPath=config_params["testLabelPath"]
+    train_label_path=config_params["train_label_path"]
+    valid_label_path=config_params["valid_label_path"]
+    test_label_path=config_params["test_label_path"]
     # 初始化模型位置参数
     best_module_path = config_params["bestModuleSavePath"]
     current_module_path = config_params["currentModuleSavePath"]
     # 初始化参数
-    device = config_params["device"]
+    device:torch.device = config_params["device"]
     hidden_size = int(config_params["hiddenSize"])
     lr = float(config_params["lr"])
     batch_size = int(config_params["batchSize"])
@@ -62,7 +79,35 @@ def train(config_params:Dict[str,str],is_train=True):
             file_name = f"output-hypothesis-test.ctm"
         file_path = os.path.join(source_file_path, file_name)
     # 预处理语言数据
-    word2id, word_number, id2word = DataPreprocessing.word2id(train_label_path=trainLabelPath, valid_label_path=validLabelPath, test_label_path=testLabelPath, data_set_name=data_set_name)
+    word2idx, word_number, idx2word = DataPreprocessing.word2id(train_label_path=train_label_path, valid_label_path=valid_label_path, test_label_path=test_label_path, data_set_name=data_set_name)
+    # 训练时的数据预处理操作
+    train_transform=VideoEnhancement.Compose([
+        VideoEnhancement.RandomCrop(size=224),
+        VideoEnhancement.RandomHorizontalFlip(prob=0.5),
+        VideoEnhancement.ToTensor(),
+        VideoEnhancement.TemporalRescale(temp_scaling=0.2)
+    ])
+    # 测试时的数据预处理操作
+    test_transform=VideoEnhancement.Compose([
+        VideoEnhancement.CenterCrop(size=224),
+        VideoEnhancement.ToTensor(),
+    ])
+    # 导入数据
+    train_data=DataPreprocessing.BaseSignLanguageDataset(image_dir_path=train_data_path,label_path=train_label_path,word2idx=word2idx,data_set_name=data_set_name,is_train=is_train,transform=train_transform)
+    test_data=DataPreprocessing.BaseSignLanguageDataset(image_dir_path=test_data_path,label_path=test_label_path,word2idx=word2idx,data_set_name=data_set_name,is_train=is_train,transform=test_transform)
+    valid_data=DataPreprocessing.BaseSignLanguageDataset(image_dir_path=valid_data_path,label_path=valid_label_path,word2idx=word2idx,data_set_name=data_set_name,is_train=is_train,transform=test_transform)
+    # 构造DataLoader
+    train_loader=DataLoader(dataset=train_data,batch_size=batch_size,shuffle=True,num_workers=num_workers,pin_memory=pin_memory,collate_fn=DataPreprocessing.collate_fn,drop_last=True)
+    test_loader=DataLoader(dataset=test_data,batch_size=1,shuffle=False,num_workers=num_workers,pin_memory=pin_memory,collate_fn=DataPreprocessing.collate_fn,drop_last=True)
+    valid_loader=DataLoader(dataset=valid_data,batch_size=1,shuffle=False,num_workers=num_workers,pin_memory=pin_memory,collate_fn=DataPreprocessing.collate_fn,drop_last=True)
+    # 模型定义
+    model=Net.ModuleNet(hidden_size=hidden_size,word_set_num=word_number*max_num_states+1,module_choice=module_choice,data_set_name=data_set_name,is_flag=True)
+    model=model.to(device=device)
+    # 定义损失函数
+    ctc_loss,kld=loss_function(module_choice)
+    if module_choice=="MAM-FSD":
+        mse_loss=nn.MSELoss(reduction="mean")
+    pass
 if __name__=="__main__":
     config_params=readconfig.read_config()
     train(config_params)
