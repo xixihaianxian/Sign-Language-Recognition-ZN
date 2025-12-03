@@ -9,6 +9,10 @@ import DataPreprocessing
 import VideoEnhancement
 import Net
 from torch import nn
+from torch import optim
+import math
+from loguru import logger
+import decode
 
 # 设置随机种子，提高代码的复现可能性
 def seed_torch(seed=0):
@@ -30,14 +34,19 @@ def loss_function(module_choice:str):
     pad_idx=0
     ctc_loss=None
     kld=None
+    mean_loss=None
     if module_choice=="MSTNet":
         ctc_loss=nn.CTCLoss(blank=pad_idx,reduction="mean",zero_infinity=True)
     elif module_choice=="VAC" or module_choice=="CorrNet" or module_choice=="MAM-FSD" or module_choice=="SEN" or module_choice=="TFNet":
         ctc_loss=nn.CTCLoss(blank=pad_idx,reduction="none",zero_infinity=True)
         kld=DataPreprocessing.SeqKD(T=8)
-        # if module_choice=="MAM-FSD":
-        #     mean_loss=nn.MSELoss(reduction="mean")
-    return ctc_loss,kld
+        if module_choice=="MAM-FSD":
+            mean_loss=nn.MSELoss(reduction="mean")
+    return ctc_loss,kld,mean_loss
+
+# 构造优化器
+def optimizer_function(module:torch.nn.Module,learning_rate:float,weight_decay:float)->optim.optimizer.Optimizer:
+    return optim.Adam(module.parameters(),lr=learning_rate,weight_decay=weight_decay)
 
 # 训练
 def train(config_params:Dict[str,Any],is_train=True):
@@ -104,9 +113,40 @@ def train(config_params:Dict[str,Any],is_train=True):
     model=Net.ModuleNet(hidden_size=hidden_size,word_set_num=word_number*max_num_states+1,module_choice=module_choice,data_set_name=data_set_name,is_flag=True)
     model=model.to(device=device)
     # 定义损失函数
-    ctc_loss,kld=loss_function(module_choice)
-    if module_choice=="MAM-FSD":
-        mse_loss=nn.MSELoss(reduction="mean")
+    ctc_loss,kld,mean_loss=loss_function(module_choice)
+    loft_soft_max=nn.LogSoftmax(dim=-1)
+    optimizer=optimizer_function(module=model,learning_rate=lr,weight_decay=0.0001)
+    # 读取预训练模型参数
+    best_loss=math.inf
+    best_loss_epoch=0
+    best_wer_score=math.inf
+    best_wer_score_epoch=0
+    epoch=0 # 当前完成的epoch
+    last_epoch=-1 # 用于告诉学习率调度器目前已经完成了多少个epoch的训练
+    if os.path.exists(current_module_path):
+        checkpoint=torch.load(f=current_module_path,map_location=torch.device("cpu"))
+        model.load_state_dict(checkpoint["module_state_dict"])
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        best_loss=checkpoint["best_loss"]
+        best_loss_epoch=checkpoint["best_loss_epoch"]
+        best_wer_score=checkpoint["best_wer_score"]
+        best_wer_score_epoch=checkpoint["best_wer_score_epoch"]
+        epoch=checkpoint["epoch"]
+        last_epoch=epoch
+        # 打印已加载模型的状态
+        logger.info(f"已加载预训练模型 epoch: {epoch}, best loss: {best_loss}, best loss epoch: {best_loss_epoch}, wer score: {best_wer_score}, best wer score epoch: {best_wer_score_epoch}")
+    else:
+        logger.info(f"已加载预训练模型 epoch: {epoch}, best loss: {best_loss}, best loss epoch: {best_loss_epoch}, wer score: {best_wer_score}, best wer score epoch: {best_wer_score_epoch}")
+    # 设置学习率削减规则
+    scheduler=optim.lr_scheduler.MultiStepLR(
+        optimizer=optimizer,
+        milestones=[35,45],
+        gamma=0.2,
+        last_epoch=last_epoch # 设置这个参数是为了契合模型续训练
+    )
+    # 解码参数
+    decoder=decode.Decode(gloss_dict=word2idx,num_classes=word_number+1,search_mode="beam")
+    # 训练
     pass
 if __name__=="__main__":
     config_params=readconfig.read_config()
