@@ -13,6 +13,9 @@ from torch import optim
 import math
 from loguru import logger
 import decode
+from torch.cuda.amp import autocast
+from torch.cuda.amp import GradScaler
+from tqdm import tqdm
 
 # 设置随机种子，提高代码的复现可能性
 def seed_torch(seed=0):
@@ -45,19 +48,19 @@ def loss_function(module_choice:str):
     return ctc_loss,kld,mean_loss
 
 # 构造优化器
-def optimizer_function(module:torch.nn.Module,learning_rate:float,weight_decay:float)->optim.optimizer.Optimizer:
+def optimizer_function(module:torch.nn.Module,learning_rate:float,weight_decay:float)->optim.Optimizer:
     return optim.Adam(module.parameters(),lr=learning_rate,weight_decay=weight_decay)
 
 # 训练
 def train(config_params:Dict[str,Any],is_train=True):
     # 初始化数据路径参数
     train_data_path=config_params["trainDataPath"]
-    valid_data_path=config_params["valid_data_path"]
-    test_data_path=config_params["test_data_path"]
+    valid_data_path=config_params["validDataPath"]
+    test_data_path=config_params["testDataPath"]
     # 初始化标签路径参数
-    train_label_path=config_params["train_label_path"]
-    valid_label_path=config_params["valid_label_path"]
-    test_label_path=config_params["test_label_path"]
+    train_label_path=config_params["trainLabelPath"]
+    valid_label_path=config_params["validLabelPath"]
+    test_label_path=config_params["testLabelPath"]
     # 初始化模型位置参数
     best_module_path = config_params["bestModuleSavePath"]
     current_module_path = config_params["currentModuleSavePath"]
@@ -102,9 +105,11 @@ def train(config_params:Dict[str,Any],is_train=True):
         VideoEnhancement.ToTensor(),
     ])
     # 导入数据
-    train_data=DataPreprocessing.BaseSignLanguageDataset(image_dir_path=train_data_path,label_path=train_label_path,word2idx=word2idx,data_set_name=data_set_name,is_train=is_train,transform=train_transform)
-    test_data=DataPreprocessing.BaseSignLanguageDataset(image_dir_path=test_data_path,label_path=test_label_path,word2idx=word2idx,data_set_name=data_set_name,is_train=is_train,transform=test_transform)
-    valid_data=DataPreprocessing.BaseSignLanguageDataset(image_dir_path=valid_data_path,label_path=valid_label_path,word2idx=word2idx,data_set_name=data_set_name,is_train=is_train,transform=test_transform)
+    method_name=f"{data_set_name.replace('-','')}Dataset" # 方法的名称
+    method=getattr(DataPreprocessing,method_name)
+    train_data=method(image_dir_path=train_data_path,label_path=train_label_path,word2idx=word2idx,data_set_name=data_set_name,is_train=is_train,transform=train_transform)
+    test_data=method(image_dir_path=test_data_path,label_path=test_label_path,word2idx=word2idx,data_set_name=data_set_name,is_train=is_train,transform=test_transform)
+    valid_data=method(image_dir_path=valid_data_path,label_path=valid_label_path,word2idx=word2idx,data_set_name=data_set_name,is_train=is_train,transform=test_transform)
     # 构造DataLoader
     train_loader=DataLoader(dataset=train_data,batch_size=batch_size,shuffle=True,num_workers=num_workers,pin_memory=pin_memory,collate_fn=DataPreprocessing.collate_fn,drop_last=True)
     test_loader=DataLoader(dataset=test_data,batch_size=1,shuffle=False,num_workers=num_workers,pin_memory=pin_memory,collate_fn=DataPreprocessing.collate_fn,drop_last=True)
@@ -147,7 +152,27 @@ def train(config_params:Dict[str,Any],is_train=True):
     # 解码参数
     decoder=decode.Decode(gloss_dict=word2idx,num_classes=word_number+1,search_mode="beam")
     # 训练
-    pass
+    if is_train:
+        epoch_number=55
+        if last_epoch!=-1:
+            epoch_number=epoch_number-last_epoch
+        else:
+            epoch_number=epoch_number
+        seed=1
+        for epoch in range(epoch_number):
+            model.train()
+            scaler=GradScaler() # 梯度缩放，防止梯度因为过小引起的报错
+            loss_value=list() # 存放损失值
+            for data in tqdm(stable(dataloader=train_loader,seed=seed+epoch)):
+                video=data.get("video").to(device=device)
+                label=data.get("label")
+                video_len=data.get("video_length")
+                target_data=[target.to(device=device) for target in label]
+                target_len=torch.tensor(list(map(len,target_data)))
+                target_data=torch.cat(target_data,dim=0).to(device=device)
+                with autocast():
+                    pass
+
 if __name__=="__main__":
     config_params=readconfig.read_config()
     train(config_params)

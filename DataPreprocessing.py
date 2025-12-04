@@ -351,6 +351,7 @@ class custom_defaultdict(defaultdict):
 # 设置collate_fn函数，可用于之后的DataLoader,同时处理样本
 # 论文参考1. https://arxiv.org/pdf/2402.19118 2. https://arxiv.org/pdf/1910.06709 3. https://arxiv.org/pdf/2311.07623
 def collate_fn(batch):
+    # batch可能是一个包含了多个sample的张量
     collated=custom_defaultdict(list) # 设置默认类型
     # 对batch进行排序
     batch=list(sorted(batch,key=lambda x:len(x["video"]),reverse=True))
@@ -380,7 +381,7 @@ def collate_fn(batch):
                 ),dim=0
             )
         )
-        collated["label"].append(torch.tensor(sample.get("label"),dtype=torch.int64))
+        collated["label"].append(torch.tensor(sample.get("label"),dtype=torch.int64)) # label是list
         collated["info"].append(sample.get("info"))
         collated["expand"].append([left_pad,max_len-left_pad-len(video)])
     modify_videos=torch.stack(modify_videos,dim=0)
