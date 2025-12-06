@@ -37,15 +37,15 @@ def loss_function(module_choice:str):
     pad_idx=0
     ctc_loss=None
     kld=None
-    mean_loss=None
+    mse_loss=None
     if module_choice=="MSTNet":
         ctc_loss=nn.CTCLoss(blank=pad_idx,reduction="mean",zero_infinity=True)
     elif module_choice=="VAC" or module_choice=="CorrNet" or module_choice=="MAM-FSD" or module_choice=="SEN" or module_choice=="TFNet":
         ctc_loss=nn.CTCLoss(blank=pad_idx,reduction="none",zero_infinity=True)
         kld=DataPreprocessing.SeqKD(T=8)
         if module_choice=="MAM-FSD":
-            mean_loss=nn.MSELoss(reduction="mean")
-    return ctc_loss,kld,mean_loss
+            mse_loss=nn.MSELoss(reduction="mean")
+    return ctc_loss,kld,mse_loss
 
 # 构造优化器
 def optimizer_function(module:torch.nn.Module,learning_rate:float,weight_decay:float)->optim.Optimizer:
@@ -118,8 +118,8 @@ def train(config_params:Dict[str,Any],is_train=True):
     model=Net.ModuleNet(hidden_size=hidden_size,word_set_num=word_number*max_num_states+1,module_choice=module_choice,data_set_name=data_set_name,is_flag=True)
     model=model.to(device=device)
     # 定义损失函数
-    ctc_loss,kld,mean_loss=loss_function(module_choice)
-    loft_soft_max=nn.LogSoftmax(dim=-1)
+    ctc_loss,kld,mse_loss=loss_function(module_choice)
+    log_soft_max=nn.LogSoftmax(dim=-1)
     optimizer=optimizer_function(module=model,learning_rate=lr,weight_decay=0.0001)
     # 读取预训练模型参数
     best_loss=math.inf
@@ -164,14 +164,56 @@ def train(config_params:Dict[str,Any],is_train=True):
             scaler=GradScaler() # 梯度缩放，防止梯度因为过小引起的报错
             loss_value=list() # 存放损失值
             for data in tqdm(stable(dataloader=train_loader,seed=seed+epoch)):
-                video=data.get("video").to(device=device)
+                video=data.get("video").to(device=device) # data
                 label=data.get("label")
-                video_len=data.get("video_length")
+                video_len=data.get("video_length") # data length
                 target_data=[target.to(device=device) for target in label]
                 target_len=torch.tensor(list(map(len,target_data)))
                 target_data=torch.cat(target_data,dim=0).to(device=device)
                 with autocast():
-                    pass
+                    log_probs_1, log_probs_2, log_probs_3, log_probs_4, log_probs_5, length, out_data_1, out_data_2, out_data_3=model(video,video_len,True)
+                    if module_choice=="MSTNet":
+                        log_probs_1=log_soft_max(log_probs_1)
+                        log_probs_2=log_soft_max(log_probs_2)
+                        log_probs_3=log_soft_max(log_probs_3)
+                        log_probs_4=log_soft_max(log_probs_4)
+                        loss_1=ctc_loss(log_probs_1,target_data,length,target_len)
+                        loss_2=ctc_loss(log_probs_2,target_data,length,target_len)
+                        loss_3=ctc_loss(log_probs_3,target_data,length*2,target_len)
+                        loss_4=ctc_loss(log_probs_4,target_data,length*4,target_len)
+                        loss:torch.Tensor=loss_1+loss_2+loss_3+loss_4
+                    elif module_choice=="VAC" or module_choice=="CorrNet" or module_choice=="MAM-FSD" or module_choice=="SEN" or module_choice=="TFNet":
+                        loss_3=25*kld(log_probs_2,log_probs_1,use_blank=False)
+                        log_probs_1=log_soft_max(log_probs_1)
+                        log_probs_2=log_soft_max(log_probs_2)
+                        loss_1=ctc_loss(log_probs_1,target_data,length,target_len).mean()
+                        loss_2 = ctc_loss(log_probs_2, target_data, length, target_len).mean()
+                        if module_choice=="MAM-FSD":
+                            loss_4 = mse_loss(out_data_1[0], out_data_1[1])
+                            loss_5 = mse_loss(out_data_2[0], out_data_2[1])
+                            loss_6 = mse_loss(out_data_3[0], out_data_3[1])
+                            loss:torch.Tensor = loss_1 + loss_2 + loss_3 + 5 * loss_4 + 1 * loss_5 + 70 * loss_6
+                        elif module_choice=="TFNet":
+                            loss_6 = 25 * kld(log_probs_4, log_probs_3, use_blank=False)
+                            log_probs_3 = log_soft_max(log_probs_3)
+                            log_probs_4 = log_soft_max(log_probs_4)
+                            loss_4 = ctc_loss(log_probs_3, target_data, length, target_len).mean()
+                            loss_5 = ctc_loss(log_probs_4, target_data, length, target_len).mean()
+                            log_probs_5 = log_soft_max(log_probs_5)
+                            loss_7 = ctc_loss(log_probs_5, target_data, length, target_len).mean()
+                            loss:torch.Tensor = loss_1 + loss_2 + loss_3 + loss_4 + loss_5 + loss_6 + loss_7
+                        else:
+                            loss:torch.Tensor = loss_1 + loss_2 + loss_3
+                    if np.isinf(loss.item()) or np.isnan(loss.item()):
+                        logger.error(f"loss is nan or inf!")
+                        raise ValueError(f"loss is nan or inf!")
+                    optimizer.zero_grad()
+                    scaler.scale(loss).backward()
+                    scaler.step(optimizer)
+                    scaler.update()
+                loss_value.append(loss.item())
+                torch.cuda.empty_cache() # 释放 PyTorch 内部缓存的空闲显存(可能会降低性能)
+            pass
 
 if __name__=="__main__":
     config_params=readconfig.read_config()

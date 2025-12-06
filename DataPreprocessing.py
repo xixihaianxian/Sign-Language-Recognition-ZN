@@ -336,7 +336,7 @@ class CSLDailyDataset(BaseSignLanguageDataset):
                 logger.error(f"{image_seq_name} is not exist")
                 raise KeyError(f"{image_seq_name} is not exist")
 # 定义默认字典
-class custom_defaultdict(defaultdict):
+class CustomDefaultDict(defaultdict):
     def __init__(self,*args,**kwargs):
         super().__init__(*args,**kwargs) # 继承父类
         self.warned=set()
@@ -352,7 +352,7 @@ class custom_defaultdict(defaultdict):
 # 论文参考1. https://arxiv.org/pdf/2402.19118 2. https://arxiv.org/pdf/1910.06709 3. https://arxiv.org/pdf/2311.07623
 def collate_fn(batch):
     # batch可能是一个包含了多个sample的张量
-    collated=custom_defaultdict(list) # 设置默认类型
+    collated=CustomDefaultDict(list) # 设置默认类型
     # 对batch进行排序
     batch=list(sorted(batch,key=lambda x:len(x["video"]),reverse=True))
     # 获取视频时间最长的视频的总帧
