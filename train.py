@@ -16,6 +16,7 @@ import decode
 from torch.cuda.amp import autocast
 from torch.cuda.amp import GradScaler
 from tqdm import tqdm
+from typing import List
 
 # 设置随机种子，提高代码的复现可能性
 def seed_torch(seed=0):
@@ -159,19 +160,23 @@ def train(config_params:Dict[str,Any],is_train=True):
         else:
             epoch_number=epoch_number
         seed=1
-        for epoch in range(epoch_number):
-            model.train()
+        for _ in range(epoch_number):
+            model.train() # 将模型转化为训练模式
             scaler=GradScaler() # 梯度缩放，防止梯度因为过小引起的报错
             loss_value=list() # 存放损失值
             for data in tqdm(stable(dataloader=train_loader,seed=seed+epoch)):
                 video=data.get("video").to(device=device) # data
-                label=data.get("label")
+                label:List[torch.Tensor]=data.get("label")
                 video_len=data.get("video_length") # data length
                 target_data=[target.to(device=device) for target in label]
                 target_len=torch.tensor(list(map(len,target_data)))
                 target_data=torch.cat(target_data,dim=0).to(device=device)
                 with autocast():
                     log_probs_1, log_probs_2, log_probs_3, log_probs_4, log_probs_5, length, out_data_1, out_data_2, out_data_3=model(video,video_len,True)
+                    # log_probs_1：Transformer编码后，最低T/4时，语义级对齐
+                    # log_probs_2：第二卷积之后，T/4，结构时序建模
+                    # log_probs_3：第一组卷积之后，T/2，中间监督防止，梯度消失
+                    # log_probs_4：ResNet后线性映射，T，保留细节，辅助定位
                     if module_choice=="MSTNet":
                         log_probs_1=log_soft_max(log_probs_1)
                         log_probs_2=log_soft_max(log_probs_2)
@@ -213,7 +218,27 @@ def train(config_params:Dict[str,Any],is_train=True):
                     scaler.update()
                 loss_value.append(loss.item())
                 torch.cuda.empty_cache() # 释放 PyTorch 内部缓存的空闲显存(可能会降低性能)
-            pass
+            logger.info(f"epoch: {epoch} train loss: {np.mean(loss_value)} learning rate: {optimizer.param_groups[0]['lr']}")
+            epoch+=1
+            scheduler.step()
+            with torch.no_grad():
+                model.eval() # 模型转化为测试模式
+                logger.info(f"model valid!")
+                wer_score_sum = 0 # 记录此错误率
+                total_info = [] # 存储每条样本的元信息
+                total_sent = [] # 存储每个样本的模型预测结果
+                loss_value = [] # 收集每个batch的损失值
+                for valid_data in tqdm(valid_loader):
+                    valid_video=valid_data["video"].to(device=device)
+                    valid_label:List[torch.Tensor]=valid_data["label"]
+                    valid_video_length=valid_data["video_length"]
+                    info=valid_data["info"]
+                    valid_target_out_data=[target.to(device=device) for target in valid_label]
+                    valid_target_len=torch.tensor(list(map(len,valid_target_out_data)))
+                    valid_target_data=valid_target_out_data
+                    valid_target_out_data=torch.cat(valid_target_out_data,dim=0).to(device=device)
+                    batch_size=len(valid_target_len)
+                    pass
 
 if __name__=="__main__":
     config_params=readconfig.read_config()
