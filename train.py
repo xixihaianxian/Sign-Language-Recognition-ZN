@@ -17,6 +17,7 @@ from torch.cuda.amp import autocast
 from torch.cuda.amp import GradScaler
 from tqdm import tqdm
 from typing import List
+from WER import wer_score
 
 # 设置随机种子，提高代码的复现可能性
 def seed_torch(seed=0):
@@ -211,7 +212,8 @@ def train(config_params:Dict[str,Any],is_train=True):
                             loss:torch.Tensor = loss_1 + loss_2 + loss_3
                     if np.isinf(loss.item()) or np.isnan(loss.item()):
                         logger.error(f"loss is nan or inf!")
-                        raise ValueError(f"loss is nan or inf!")
+                        # raise ValueError(f"loss is nan or inf!")
+                        continue
                     optimizer.zero_grad()
                     scaler.scale(loss).backward()
                     scaler.step(optimizer)
@@ -227,7 +229,7 @@ def train(config_params:Dict[str,Any],is_train=True):
                 wer_score_sum = 0 # 记录此错误率
                 total_info = [] # 存储每条样本的元信息
                 total_sent = [] # 存储每个样本的模型预测结果
-                loss_value = [] # 收集每个batch的损失值
+                valid_loss_value = [] # 收集每个batch的损失值
                 for valid_data in tqdm(valid_loader):
                     valid_video=valid_data["video"].to(device=device)
                     valid_label:List[torch.Tensor]=valid_data["label"]
@@ -238,7 +240,29 @@ def train(config_params:Dict[str,Any],is_train=True):
                     valid_target_data=valid_target_out_data
                     valid_target_out_data=torch.cat(valid_target_out_data,dim=0).to(device=device)
                     batch_size=len(valid_target_len)
-                    pass
+                    log_probs_1, log_probs_2, log_probs_3, log_probs_4, log_probs_5, length, out_data_1, out_data_2, out_data_3 = model(valid_video, valid_video_length, False)
+                    log_probs_1=log_soft_max(log_probs_1)
+                    if module_choice=="MSTNet":
+                        loss_1=ctc_loss(log_probs_1,valid_target_out_data,length,valid_target_len)
+                    else:
+                        loss_1=ctc_loss(log_probs_1,valid_target_out_data,length,valid_target_len).mean()
+                    loss=loss_1
+                    if np.isnan(loss.item()) or np.isinf(loss.item()):
+                        logger.error(f"loss is nan!")
+                        continue
+                    else:
+                        valid_loss_value.append(loss.item())
+                    pred,valid_target_data_ctc=decoder.decode(ctc_logits=log_probs_1,vid_lgt=length,batch_first=False,is_probability_distribution=False)
+                    if data_set_name=="RWTH" or data_set_name=="RWTH-T":
+                        total_info.extend(info)
+                        total_sent+=pred
+                    elif data_set_name=="CSL-Daily" or data_set_name=="CE-CSL":
+                        wer=wer_score(prediction_result=[valid_target_data_ctc],target_out_result=valid_target_data,id2word=idx2word,batch_size=batch_size)
+                        wer_score_sum+=wer
+                torch.cuda.empty_cache()
+                current_loss=np.mean(valid_loss_value)
+                wer=wer_score_sum/len(valid_loader)
+                pass
 
 if __name__=="__main__":
     config_params=readconfig.read_config()

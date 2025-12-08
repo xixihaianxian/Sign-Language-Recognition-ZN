@@ -167,6 +167,9 @@ def get_alignment(reference:List[str],hypothesis:List[str],distance:np.ndarray)-
     )
 # 计算wer score
 def wer_score(prediction_result:List[List[int]],target_out_result:List[List[int]],id2word:Any,batch_size):
+    r"""
+    如果输入的target_out_result是一个tensor的话，id2word就需要是一个列表，不然会报错
+    """
     references=list()
     hypotheses=list()
     wer_score_sum=0
