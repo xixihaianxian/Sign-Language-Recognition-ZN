@@ -262,6 +262,29 @@ def train(config_params:Dict[str,Any],is_train=True):
                 torch.cuda.empty_cache()
                 current_loss=np.mean(valid_loss_value)
                 wer=wer_score_sum/len(valid_loader)
+                if wer<best_wer_score:
+                    best_wer_score=wer
+                    best_wer_score_epoch=epoch-1
+                    module_dict=dict()
+                    module_dict["module_state_dict"]=model.state_dict()
+                    module_dict["optimizer_state_dict"]=optimizer.state_dict()
+                    module_dict["best_loss"]=best_loss # 这里可能有一些歧义其实也可以直接设置为上一次的current_loss，因为确定wer_score最佳的时候无法确定best_loss是最佳的
+                    module_dict["best_loss_epoch"]=best_loss_epoch # 这里和上面的情况同理，可以直接设置为上一次的best_loss_epoch
+                    module_dict["best_wer_score"]=best_wer_score
+                    module_dict["best_wer_score_epoch"]=best_wer_score_epoch
+                    module_dict["epoch"]=epoch
+                    torch.save(module_dict,best_module_path)
+                if best_loss>current_loss:
+                    best_loss = current_loss
+                    best_loss_epoch = epoch - 1
+                    module_dict["module_state_dict"]=model.state_dict()
+                    module_dict["optimizer_state_dict"]=optimizer.state_dict()
+                    module_dict["best_loss"]=best_loss
+                    module_dict["best_loss_epoch"]=best_loss_epoch
+                    module_dict["best_wer_score"]=best_wer_score
+                    module_dict["best_wer_score_epoch"]=best_wer_score_epoch
+                    module_dict["epoch"]=epoch
+                    torch.save(module_dict,current_module_path)
                 pass
 
 if __name__=="__main__":
