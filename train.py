@@ -285,7 +285,8 @@ def train(config_params:Dict[str,Any],is_train=True):
                     module_dict["best_wer_score_epoch"]=best_wer_score_epoch
                     module_dict["epoch"]=epoch
                     torch.save(module_dict,current_module_path)
-                pass
+                logger.info(f"valid loss: {current_loss} wer score: {wer}.")
+                logger.info(f"best loss: {best_loss} best loss epoch: {best_loss_epoch} best wer score: {best_wer_score} best wer score epoch: {best_wer_score_epoch}.")
 
 if __name__=="__main__":
     config_params=readconfig.read_config()
