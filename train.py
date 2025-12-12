@@ -19,6 +19,13 @@ from tqdm import tqdm
 from typing import List
 from WER import wer_score
 
+# 创建模型存放目录
+if not os.path.exists("module"):
+    os.makedirs("module")
+epoch_path=os.path.join("module","epoch")
+if not os.path.exists(epoch_path):
+    os.makedirs(epoch_path)
+
 # 设置随机种子，提高代码的复现可能性
 def seed_torch(seed=0):
     random.seed(seed)
@@ -274,6 +281,7 @@ def train(config_params:Dict[str,Any],is_train=True):
                     module_dict["best_wer_score_epoch"]=best_wer_score_epoch
                     module_dict["epoch"]=epoch
                     torch.save(module_dict,best_module_path)
+                    logger.info(f"Save best module!")
                 if best_loss>current_loss:
                     best_loss = current_loss
                     best_loss_epoch = epoch - 1
@@ -285,6 +293,10 @@ def train(config_params:Dict[str,Any],is_train=True):
                     module_dict["best_wer_score_epoch"]=best_wer_score_epoch
                     module_dict["epoch"]=epoch
                     torch.save(module_dict,current_module_path)
+                    logger.info(f"Save current module!")
+                # 保存每次epoch的模型
+                epoch_module_save_path=os.path.join(epoch_path,f"Epoch_{epoch}_Module.pth")
+                torch.save(module_choice,epoch_module_save_path)
                 logger.info(f"valid loss: {current_loss} wer score: {wer}.")
                 logger.info(f"best loss: {best_loss} best loss epoch: {best_loss_epoch} best wer score: {best_wer_score} best wer score epoch: {best_wer_score_epoch}.")
 
