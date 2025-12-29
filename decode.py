@@ -166,67 +166,67 @@ def ctc_loss(log_probs,targets,input_lengths,target_lengths,blank=0):
         input_length_sum=torch.sum(input_lengths)
     return llForward/input_length_sum
 if __name__=="__main__":
-    # gloss_dict = {"blank": 0, "hello": 1, "world": 2, "goodbye": 3}
-    # ctc_logits = torch.tensor([
-    #     [  # 样本 1
-    #         [2.0, 5.0, 0.5, 0.2],
-    #         [1.0, 4.5, 0.3, 0.1],
-    #         [0.2, 0.1, 6.0, 0.4],
-    #         [0.3, 0.2, 5.5, 0.1],
-    #         [0.1, 0.2, 0.3, 0.1],
-    #         [3.0, 0.5, 0.2, 0.1],
-    #         [2.5, 0.3, 0.2, 0.1],
-    #         [1.0, 5.0, 0.3, 0.1],
-    #         [0.1, 0.2, 6.0, 0.1],
-    #         [0.3, 0.1, 5.5, 0.2],
-    #     ],
-    #     [  # 样本 2
-    #         [3.0, 0.1, 0.2, 5.0],
-    #         [2.5, 0.2, 0.3, 4.5],
-    #         [0.1, 0.2, 6.0, 0.2],
-    #         [0.3, 0.1, 5.5, 0.3],
-    #         [1.0, 5.0, 0.3, 0.1],
-    #         [0.1, 0.3, 0.2, 0.2],
-    #         [2.0, 4.5, 0.3, 0.1],
-    #         [0.1, 0.2, 6.0, 0.2],
-    #         [0.3, 0.1, 5.5, 0.3],
-    #         [0.1, 0.2, 0.3, 0.1],
-    #     ]
-    # ])
-    #
-    # vid_lgt = torch.IntTensor([10, 10])
-    # decode=Decode(gloss_dict,len(gloss_dict),"beam")
-    # beam_search=decode.beam_search(ctc_logits,vid_lgt)
-    # max_result=decode.max_search(ctc_logits, vid_lgt)
-    # print(beam_search)
-    # print(max_result)
-    batch_size = 2
-    T_max = 5
-    vocab_size = 4
-    blank = 0
-    log_probs = torch.tensor([
-        [
-            [0.1, 0.6, 0.2, 0.1],
-            [0.3, 0.3, 0.2, 0.2],
+    gloss_dict = {"pad": 0, "hello": 1, "world": 2, "goodbye": 3}
+    ctc_logits = torch.tensor([
+        [  # 样本 1
+            [2.0, 5.0, 0.5, 0.2],
+            [1.0, 4.5, 0.3, 0.1],
+            [0.2, 0.1, 6.0, 0.4],
+            [0.3, 0.2, 5.5, 0.1],
+            [0.1, 0.2, 0.3, 0.1],
+            [3.0, 0.5, 0.2, 0.1],
+            [2.5, 0.3, 0.2, 0.1],
+            [1.0, 5.0, 0.3, 0.1],
+            [0.1, 0.2, 6.0, 0.1],
+            [0.3, 0.1, 5.5, 0.2],
         ],
-        [
-            [0.7, 0.1, 0.1, 0.1],
-            [0.25, 0.25, 0.25, 0.25],
-        ],
-        [
-            [0.1, 0.2, 0.6, 0.1],
-            [0.4, 0.2, 0.2, 0.2],
-        ],
-        [
-            [0.25, 0.25, 0.25, 0.25],
-            [0.1, 0.6, 0.2, 0.1],
-        ],
-        [
-            [0.4, 0.3, 0.2, 0.1],
-            [0.5, 0.1, 0.3, 0.1],
+        [  # 样本 2
+            [3.0, 0.1, 0.2, 5.0],
+            [2.5, 0.2, 0.3, 4.5],
+            [0.1, 0.2, 6.0, 0.2],
+            [0.3, 0.1, 5.5, 0.3],
+            [1.0, 5.0, 0.3, 0.1],
+            [0.1, 0.3, 0.2, 0.2],
+            [2.0, 4.5, 0.3, 0.1],
+            [0.1, 0.2, 6.0, 0.2],
+            [0.3, 0.1, 5.5, 0.3],
+            [0.1, 0.2, 0.3, 0.1],
         ]
-    ], dtype=torch.float32)
-    targets = torch.tensor([1, 2, 1, 1, 2], dtype=torch.long)
-    input_lengths = torch.tensor([5, 5], dtype=torch.long)
-    target_lengths = torch.tensor([2, 3], dtype=torch.long)
-    print(ctc_loss(log_probs, targets, input_lengths, target_lengths))
+    ])
+
+    vid_lgt = torch.IntTensor([10, 10])
+    decode=Decode(gloss_dict,len(gloss_dict),"beam")
+    beam_search=decode.beam_search(ctc_logits,vid_lgt)
+    max_result=decode.max_search(ctc_logits, vid_lgt)
+    print(beam_search)
+    print(max_result)
+    # batch_size = 2
+    # T_max = 5
+    # vocab_size = 4
+    # blank = 0
+    # log_probs = torch.tensor([
+    #     [
+    #         [0.1, 0.6, 0.2, 0.1],
+    #         [0.3, 0.3, 0.2, 0.2],
+    #     ],
+    #     [
+    #         [0.7, 0.1, 0.1, 0.1],
+    #         [0.25, 0.25, 0.25, 0.25],
+    #     ],
+    #     [
+    #         [0.1, 0.2, 0.6, 0.1],
+    #         [0.4, 0.2, 0.2, 0.2],
+    #     ],
+    #     [
+    #         [0.25, 0.25, 0.25, 0.25],
+    #         [0.1, 0.6, 0.2, 0.1],
+    #     ],
+    #     [
+    #         [0.4, 0.3, 0.2, 0.1],
+    #         [0.5, 0.1, 0.3, 0.1],
+    #     ]
+    # ], dtype=torch.float32)
+    # targets = torch.tensor([1, 2, 1, 1, 2], dtype=torch.long)
+    # input_lengths = torch.tensor([5, 5], dtype=torch.long)
+    # target_lengths = torch.tensor([2, 3], dtype=torch.long)
+    # print(ctc_loss(log_probs, targets, input_lengths, target_lengths))
