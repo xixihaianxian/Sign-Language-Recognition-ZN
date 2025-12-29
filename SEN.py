@@ -197,7 +197,7 @@ class ResNet(nn.Module):
 # 登录resnet18的预训练参数
 def resnet18(model_dir=None,**kwargs):
     custom_model = ResNet(BasicBlock, [2, 2, 2, 2],**kwargs)
-    model_dir="/mnt/e/Sign-Language-Recognition-ZN/resnet" if model_dir is None else model_dir
+    model_dir="./resnet" if model_dir is None else model_dir
     # 获取resnet18的状态字典
     resnet_state_dict=load_state_dict_from_url(url=model_urls.get("resnet18"),model_dir=model_dir,file_name="resnet18.pth")
     for name,param in resnet_state_dict.items():
@@ -208,7 +208,7 @@ def resnet18(model_dir=None,**kwargs):
 # 登录resnet34的预训练参数
 def resnet34(model_dir=None,**kwargs):
     custom_model=ResNet(BasicBlock, [3, 4, 6, 3], **kwargs)
-    model_dir="/mnt/e/Sign-Language-Recognition-ZN/resnet" if model_dir is None else model_dir
+    model_dir="./resnet" if model_dir is None else model_dir
     # 获取resnet34状态字典
     resnet34_state_dict=load_state_dict_from_url(url=model_urls.get("resnet34"),model_dir=model_dir,file_name="resnet34.pth")
     for name,param in resnet34_state_dict.items():

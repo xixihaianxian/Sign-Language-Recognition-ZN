@@ -6,12 +6,12 @@ from loguru import logger
 def read_config():
     # 默认参数
     config_params = {
-        "trainDataPath":"/mnt/e/Sign-Language-Recognition-ZN/data/video/train",
-        "validDataPath": "/mnt/e/Sign-Language-Recognition-ZN/data/video",
-        "testDataPath": "/mnt/e/Sign-Language-Recognition-ZN/data/video/test",
-        "trainLabelPath": "/mnt/e/Sign-Language-Recognition-ZN/CE-CSL/label/train.csv",
-        "validLabelPath": "/mnt/e/Sign-Language-Recognition-ZN/CE-CSL/label/dev.csv",
-        "testLabelPath": "/mnt/e/Sign-Language-Recognition-ZN/CE-CSL/label/test.csv",
+        "trainDataPath":"./data/video/train",
+        "validDataPath": "./data/video",
+        "testDataPath": "./video/test",
+        "trainLabelPath": "./label/train.csv",
+        "validLabelPath": "./CE-CSL/label/dev.csv",
+        "testLabelPath": "./CE-CSL/label/test.csv",
         "bestModuleSavePath": "module/best.pth",
         "currentModuleSavePath": "module/current.pth",
         "device": "cuda", #或者  0:CPU  1:GPU

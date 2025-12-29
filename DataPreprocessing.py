@@ -229,7 +229,7 @@ class BaseSignLanguageDataset(data.Dataset):
         image_seq=[cv2.resize(cv2.cvtColor(cv2.imread(image_path),code=cv2.COLOR_BGR2RGB),dsize=(256,256)) for image_path in image_path_list]
         # 对图片进行图像增强
         if self.transform is not None:
-            image_seq=self.transform()
+            image_seq=self.transform(image_seq)
         image_seq=image_seq.to(dtype=torch.float32)/127.5 - 1
         return image_seq
     def __getitem__(self,item):

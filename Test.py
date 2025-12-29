@@ -8,7 +8,9 @@ import Net
 import DataPreprocessing
 import os
 import VideoEnhancement
+from tqdm import tqdm
 from torch.utils.data import DataLoader
+from typing import List
 
 # 获取配置文件
 config_params=readconfig.read_config()
@@ -79,7 +81,7 @@ def data_processing(train_label_path,valid_label_path,test_label_path,data_set_n
     return word2idx,word_number,idx2word
 
 # 登录最佳的模型
-def load_module(module_choice:str,word_number:int,data_set_name:str,device:None,module_path:str="module/best.pth"):
+def load_module(module_choice:str,word_number:int,data_set_name:str,device=None,module_path:str="module/best.pth"):
     r"""
     :params:
         module_choice: 模型选择
@@ -120,11 +122,40 @@ def get_data_loader(data_set_name:str,data_path:str,label_path,word2idx,is_train
     return test_loader
 
 # 测试
-def test(module:nn.Module,test_loader:DataLoader):
+def test(module:nn.Module,test_loader:DataLoader,device=None,module_choice:str="TFNet",data_set_name:str="CE-CSL"):
+    r"""
+    :params:
+        module:模型
+        test_loader:测试使用的数据加载器
+        device:设置的设备
+        module_choice:模型选择
+        data_set_name:数据集选择
+    """
+    log_soft_max=nn.LogSoftmax(dim=-1)
+    # 确定设备
+    device=default_device if device is None else device
     # 最低的wer
     best_wer_score=math.inf
     # 最佳的损失
     best_loss=math.inf
+    module=module.to(device=device)
+    # 将模型转化为测试模式
+    module.eval()
+    # 加载数据
+    for test_data in tqdm(test_loader):
+        test_vido=test_data["video"].to(device=device)
+        test_label:List[torch.Tensor]=test_data["label"]
+        test_video_length=test_data["video_length"]
+        info=test_data["info"]
+        test_target_out_data=[label.to(device=device) for label in test_label]
+        test_target_len=torch.tensor(list(map(len,test_target_out_data)))
+        test_target_data=test_target_out_data
+        test_target_out_data=torch.cat(test_target_out_data,dim=0).to(device=device)
+        batch_size=len(test_target_len)
+        log_probs_1, log_probs_2, log_probs_3, log_probs_4, log_probs_5, length, out_data_1, out_data_2, out_data_3 = module(test_vido, test_video_length, is_train=False)
+        log_probs_1=log_soft_max(log_probs_1)
+        if module_choice=="MSTNet":
+            pass
 
 if __name__=="__main__":
     test_data_path, train_label_path, valid_label_path, test_label_path, module_choice, data_set_name = fetch_data_params()

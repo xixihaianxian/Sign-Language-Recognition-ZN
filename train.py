@@ -230,6 +230,7 @@ def train(config_params:Dict[str,Any],is_train=True):
             logger.info(f"epoch: {epoch} train loss: {np.mean(loss_value)} learning rate: {optimizer.param_groups[0]['lr']}")
             epoch+=1
             scheduler.step()
+            # 模型验证
             with torch.no_grad():
                 model.eval() # 模型转化为测试模式
                 logger.info(f"model valid!")
