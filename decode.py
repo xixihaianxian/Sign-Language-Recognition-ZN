@@ -90,6 +90,34 @@ class Decode:
                     logger.warning(f"decoded batch len is {len(decoded_batch)}")
                     decoded_batch.append([("EMPTY", 0)])
         return decoded_batch,first_result
+    # beam search change
+    def beam_search_c(self,ctc_logits:torch.Tensor,vid_lgt:torch.Tensor,is_probability_distribution:bool=False):
+        decoded_batch=list()
+        results=list() # 用于存放所有的result
+        if not is_probability_distribution:
+            ctc_logits=F.softmax(ctc_logits,dim=-1)
+        if ctc_logits.is_cuda:
+            ctc_logits=ctc_logits.to(device=torch.device("cpu"))
+        if vid_lgt.is_cuda:
+            vid_lgt=vid_lgt.to(device=torch.device("cpu"))
+        beam_result,beam_score,time_steps,out_seq_len=self.decoder.decode(ctc_logits,vid_lgt)
+        for batch_index in range(len(ctc_logits)):
+            first_result=beam_result[batch_index][0][:out_seq_len[batch_index][0]]
+            if len(first_result)!=0:
+                first_result=torch.stack([item[0] for item in groupby(first_result)])
+            tmp=[(self.id2gloss[int(gloss_id)],index) for index,gloss_id in enumerate(first_result)]
+            if len(tmp)!=0:
+                decoded_batch.append(tmp)
+                results.append(first_result)
+            else:
+                try:
+                    decoded_batch.append(decoded_batch[-1])
+                    results.append(results[-1])
+                except Exception as error:
+                    logger.warning(f"decoded batch len is {len(decoded_batch)}")
+                    decoded_batch.append([("EMPTY", 0)])
+                    results.append([0])
+        return decoded_batch,results
     # max search 解码（贪心）
     def max_search(self,ctc_logits:torch.Tensor,vid_lgt:torch.Tensor):
         decoded_batch=list()
@@ -193,13 +221,14 @@ if __name__=="__main__":
             [0.1, 0.2, 0.3, 0.1],
         ]
     ])
-
     vid_lgt = torch.IntTensor([10, 10])
+    # log_soft_max=nn.LogSoftmax(dim=0)
+    # ctc_logits=log_soft_max(ctc_logits)
     decode=Decode(gloss_dict,len(gloss_dict),"beam")
-    beam_search=decode.beam_search(ctc_logits,vid_lgt)
+    beam_search=decode.beam_search_c(ctc_logits,vid_lgt)
     max_result=decode.max_search(ctc_logits, vid_lgt)
-    print(beam_search)
-    print(max_result)
+    data_ctc=beam_search[1]
+    print(data_ctc)
     # batch_size = 2
     # T_max = 5
     # vocab_size = 4

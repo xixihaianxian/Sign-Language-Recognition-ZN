@@ -261,6 +261,7 @@ def train(config_params:Dict[str,Any],is_train=True):
                     else:
                         valid_loss_value.append(loss.item())
                     pred,valid_target_data_ctc=decoder.decode(ctc_logits=log_probs_1,vid_lgt=length,batch_first=False,is_probability_distribution=False)
+                    # 对于RWTH和RWTH-T的处理还需要改进
                     if data_set_name=="RWTH" or data_set_name=="RWTH-T":
                         total_info.extend(info)
                         total_sent+=pred

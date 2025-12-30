@@ -1,5 +1,6 @@
 import numpy as np
 from typing import List,AnyStr,Dict,Any
+import torch
 
 WER_COST_DEL = 1 # 删除的代价
 WER_COST_INS = 1 # 插入的代价
@@ -176,8 +177,9 @@ def wer_score(prediction_result:List[List[int]],target_out_result:List[List[int]
     for batch in range(batch_size):
         # 介于di2word的类型，需要对id2word的类型进行判断
         if isinstance(id2word,dict):
-            prediction_sentence=[id2word.get(index) for index in prediction_result[batch]]
-            target_out_sentence=[id2word.get(index) for index in target_out_result[batch]]
+            # 防止id2word是dict，同时prediction_result是List[torch.Tensor]
+            prediction_sentence=[id2word.get(index) if not torch.is_tensor(index) else id2word[int(index)] for index in prediction_result[batch]]
+            target_out_sentence=[id2word.get(index) if not torch.is_tensor(index) else id2word[int(index)] for index in target_out_result[batch]]
         else:
             try:
                 prediction_sentence=[id2word[index] for index in prediction_result[batch]]
@@ -205,4 +207,3 @@ if __name__=="__main__":
     batch_size = 2
     wer=wer_score(prediction_result,target_out_result,idx2word,batch_size)
     print(wer)
-    pass

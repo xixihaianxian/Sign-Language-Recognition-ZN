@@ -432,7 +432,7 @@ def write_to_file(path:str,info,output):
                 # word_index*1.0/100获取的是单个词开始的时间戳
                 # (word_index+1)*1.0/100获取的是单个词结束的时间戳
                 # word 获取的单个单词
-                file.writelines(f"{info[sample_index]} 1 {word_index*1.0/100:.2f} {(word_index+1)*1.0/100:.2f} {word[0]}")
+                file.writelines(f"{info[sample_index]} 1 {word_index*1.0/100:.2f} {(word_index+1)*1.0/100:.2f} {word[0]}\n")
 # 序列任务的知识蒸馏（Knowledge Distillation）损失函数实现
 # https://www.isca-archive.org/interspeech_2022/tian22_interspeech.pdf
 class SeqKD(nn.Module):
