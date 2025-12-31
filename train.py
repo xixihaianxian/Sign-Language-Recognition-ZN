@@ -3,7 +3,7 @@ import numpy as np
 import random
 import os
 from torch.utils.data import DataLoader
-from typing import Dict,Any
+from typing import Dict,Any,List,Tuple
 import readconfig
 import DataPreprocessing
 import VideoEnhancement
@@ -16,7 +16,6 @@ import decode
 from torch.cuda.amp import autocast
 from torch.cuda.amp import GradScaler
 from tqdm import tqdm
-from typing import List
 from WER import wer_score
 
 # 创建模型存放目录
@@ -61,7 +60,16 @@ def optimizer_function(module:torch.nn.Module,learning_rate:float,weight_decay:f
     return optim.Adam(module.parameters(),lr=learning_rate,weight_decay=weight_decay)
 
 # 训练
-def train(config_params:Dict[str,Any],is_train=True):
+def train(config_params:Dict[str,Any],is_train=True)->Tuple[List[int],List[int],List[int]]:
+    r"""
+    :params:
+        config_params:配置参数
+        is_train:是否训练
+    :return:
+        train_losses:训练损失集
+        val_losses:验证损失集
+        wer_scores:wer score集
+    """
     # 初始化数据路径参数
     train_data_path=config_params["trainDataPath"]
     valid_data_path=config_params["validDataPath"]
@@ -160,6 +168,12 @@ def train(config_params:Dict[str,Any],is_train=True):
     )
     # 解码参数
     decoder=decode.Decode(gloss_dict=word2idx,num_classes=word_number+1,search_mode="beam")
+    # 保存train的loss列表
+    train_losses=list()
+    # 保存val的loss列表
+    val_losses=list()
+    # 存放wer score的列表
+    wer_scores=list()
     # 训练
     if is_train:
         epoch_number=55
@@ -171,7 +185,7 @@ def train(config_params:Dict[str,Any],is_train=True):
         for _ in range(epoch_number):
             model.train() # 将模型转化为训练模式
             scaler=GradScaler() # 梯度缩放，防止梯度因为过小引起的报错
-            loss_value=list() # 存放损失值
+            loss_value:List[int]=list() # 存放损失值
             for data in tqdm(stable(dataloader=train_loader,seed=seed+epoch)):
                 video=data.get("video").to(device=device) # data
                 label:List[torch.Tensor]=data.get("label")
@@ -228,6 +242,8 @@ def train(config_params:Dict[str,Any],is_train=True):
                 loss_value.append(loss.item())
                 torch.cuda.empty_cache() # 释放 PyTorch 内部缓存的空闲显存(可能会降低性能)
             logger.info(f"epoch: {epoch} train loss: {np.mean(loss_value)} learning rate: {optimizer.param_groups[0]['lr']}")
+            # 收集train损失值
+            train_losses.append(np.mean(loss_value))
             epoch+=1
             scheduler.step()
             # 模型验证
@@ -301,7 +317,12 @@ def train(config_params:Dict[str,Any],is_train=True):
                 torch.save(module_choice,epoch_module_save_path)
                 logger.info(f"valid loss: {current_loss} wer score: {wer}.")
                 logger.info(f"best loss: {best_loss} best loss epoch: {best_loss_epoch} best wer score: {best_wer_score} best wer score epoch: {best_wer_score_epoch}.")
+                # 保存val当前的损失
+                val_losses.append(current_loss)
+                # 保存val的wer score
+                wer_scores.append(wer)
+    return train_losses,val_losses,wer_scores
 
 if __name__=="__main__":
     config_params=readconfig.read_config()
-    train(config_params)
+    train_losses,val_losses,wer_scores=train(config_params)
