@@ -17,6 +17,7 @@ from torch.cuda.amp import autocast
 from torch.cuda.amp import GradScaler
 from tqdm import tqdm
 from WER import wer_score
+import Painting
 
 # 创建模型存放目录
 if not os.path.exists("module"):
@@ -60,7 +61,7 @@ def optimizer_function(module:torch.nn.Module,learning_rate:float,weight_decay:f
     return optim.Adam(module.parameters(),lr=learning_rate,weight_decay=weight_decay)
 
 # 训练
-def train(config_params:Dict[str,Any],is_train=True)->Tuple[List[int],List[int],List[int]]:
+def train(config_params:Dict[str,Any],is_train=True)->Tuple[int,List[int],List[int],List[int]]:
     r"""
     :params:
         config_params:配置参数
@@ -321,8 +322,10 @@ def train(config_params:Dict[str,Any],is_train=True)->Tuple[List[int],List[int],
                 val_losses.append(current_loss)
                 # 保存val的wer score
                 wer_scores.append(wer)
-    return train_losses,val_losses,wer_scores
+        return epoch_number,train_losses,val_losses,wer_scores
 
 if __name__=="__main__":
     config_params=readconfig.read_config()
-    train_losses,val_losses,wer_scores=train(config_params)
+    epoch,train_losses,val_losses,wer_scores=train(config_params)
+    Painting.plot_loss_curve(epoch=epoch,title="LOSS",save=True,train_loss=train_losses,val_loss=val_losses)
+    Painting.plot_loss_curve(epoch,"WER",save=True,wer=wer_scores)
