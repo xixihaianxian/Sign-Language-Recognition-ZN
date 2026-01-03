@@ -173,11 +173,12 @@ class ModuleNet(nn.Module):
         log_probs_3 = None
         log_probs_4 = None
         log_probs_5 = None
-        # 检测data_len是否符合要求
-        if data_len.dim()==1:
-            logger.warning(f"Please check the dimensions of data_len! The dimension of data_len should be 2.")
-            # 对输入的data_len进行修正
-            data_len=data_len.unsqueeze(1)
+        if isinstance(data_len,torch.Tensor):
+            # 检测data_len是否符合要求
+            if data_len.dim()==1:
+                logger.warning(f"Please check the dimensions of data_len! The dimension of data_len should be 2.")
+                # 对输入的data_len进行修正
+                data_len=data_len.unsqueeze(1)
         # 设置len_x
         len_x = data_len
         # 获取batch_size,temp,channels,height,width
