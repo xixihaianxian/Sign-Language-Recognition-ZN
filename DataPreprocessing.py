@@ -192,6 +192,7 @@ class BaseSignLanguageDataset(data.Dataset):
         self.is_train=is_train # 是否是训练
         self.transform=transform # 是否对图像进行增强
         self.samples=list() # 定义sample列表
+        self.load_data(image_dir_path=self.image_dir_path,label_path=self.label_path)
     # 登录数据
     def load_data(self,image_dir_path,label_path):
         logger.error(f"The load data method is not defined.") # 日志：load data方法没有定义
@@ -209,6 +210,7 @@ class BaseSignLanguageDataset(data.Dataset):
             logger.error(f"Data of type {type(text)} is not supported")
             raise ValueError(f"Data of type {type(text)} is not supported")
         text_to_id=list()
+        words=handle_words(words) # 对words进行处理
         for word in words:
             try:
                 text_to_id.append(self.word2idx[word]) # TODO 一般来说是一定会存在的，因为我构建词集的时候是将所有的词都加入到word_list里面的

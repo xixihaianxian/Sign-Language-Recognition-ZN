@@ -22,7 +22,7 @@ class Compose(object):
         super().__init__()
         self.transforms=transforms
     def __call__(self,image):
-        if not isinstance(transforms,list):
+        if not isinstance(self.transforms,list):
             logger.error(f"transforms must be a list")
             raise TypeError(f"transforms must be a list")
         else:

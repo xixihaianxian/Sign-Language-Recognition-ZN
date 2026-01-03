@@ -133,7 +133,7 @@ def train(config_params:Dict[str,Any],is_train=True)->Tuple[int,List[int],List[i
     test_loader=DataLoader(dataset=test_data,batch_size=1,shuffle=False,num_workers=num_workers,pin_memory=pin_memory,collate_fn=DataPreprocessing.collate_fn,drop_last=True)
     valid_loader=DataLoader(dataset=valid_data,batch_size=1,shuffle=False,num_workers=num_workers,pin_memory=pin_memory,collate_fn=DataPreprocessing.collate_fn,drop_last=True)
     # 模型定义
-    model=Net.ModuleNet(hidden_size=hidden_size,word_set_num=word_number*max_num_states+1,module_choice=module_choice,data_set_name=data_set_name,is_flag=True)
+    model=Net.ModuleNet(hidden_size=hidden_size,word_set_num=word_number*max_num_states+1,module_choice=module_choice,data_set_name=data_set_name,module_dir="./resnet",is_flag=True)
     model=model.to(device=device)
     # 定义损失函数
     ctc_loss,kld,mse_loss=loss_function(module_choice)
