@@ -228,7 +228,7 @@ class BaseSignLanguageDataset(data.Dataset):
         indices=self.sample_indices(image_number) # 获取关键帧索引
         frames=[image_path_list[index] for index in indices] # 获取关键帧，但是这里是获取所有帧，如果去需要获取关键帧，可以在image_number上做更改
         # 此时image的大小还是(256,256,3)
-        image_seq=[cv2.resize(cv2.cvtColor(cv2.imread(image_path),code=cv2.COLOR_BGR2RGB),dsize=(256,256)) for image_path in image_path_list]
+        image_seq=[cv2.resize(cv2.cvtColor(cv2.imread(image_path),code=cv2.COLOR_BGR2RGB),dsize=(256,256)) for image_path in frames]
         # 对图片进行图像增强
         if self.transform is not None:
             image_seq=self.transform(image_seq)

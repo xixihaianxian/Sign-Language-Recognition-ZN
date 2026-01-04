@@ -123,11 +123,13 @@ class ToTensor(object):
         super().__init__()
     def __call__(self,data):
         if isinstance(data,list): # list转化为tensor
-            data=torch.tensor(data,dtype=torch.float32)
+            data=np.array(data)
+            data=torch.tensor(data.transpose((0,3,1,2)),dtype=torch.float32)
         elif isinstance(data,torch.Tensor):# 转变为float32
+            data=data.permute((0,3,1,2))
             data=data.to(dtype=torch.float32)
         elif isinstance(data,np.ndarray):# 数组转化tensor
-            data=torch.from_numpy(data).to(dtype=torch.float32)
+            data=torch.from_numpy(data.transpose((0,3,1,2))).to(dtype=torch.float32)
         else:
             logger.error(f"It is an unsupported type")
             raise TypeError(f"It is an unsupported type")
