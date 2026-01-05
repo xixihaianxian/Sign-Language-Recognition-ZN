@@ -15,8 +15,8 @@ from torch import optim
 import math
 from loguru import logger
 import decode
-from torch.cuda.amp import autocast
-from torch.cuda.amp import GradScaler
+from torch.amp import autocast
+from torch.amp import GradScaler
 from tqdm import tqdm
 from WER import wer_score
 import Painting
@@ -187,7 +187,7 @@ def train(config_params:Dict[str,Any],is_train=True)->Tuple[int,List[int],List[i
         seed=1
         for _ in range(epoch_number):
             model.train() # 将模型转化为训练模式
-            scaler=GradScaler() # 梯度缩放，防止梯度因为过小引起的报错
+            scaler=GradScaler("cuda" if torch.cuda.is_available() else "cpu") # 梯度缩放，防止梯度因为过小引起的报错
             loss_value:List[int]=list() # 存放损失值
             for data in tqdm(stable(dataloader=train_loader,seed=seed+epoch)):
                 video=data.get("video").to(device=device) # data
@@ -196,7 +196,7 @@ def train(config_params:Dict[str,Any],is_train=True)->Tuple[int,List[int],List[i
                 target_data=[target.to(device=device) for target in label]
                 target_len=torch.tensor(list(map(len,target_data)))
                 target_data=torch.cat(target_data,dim=0).to(device=device)
-                with autocast():
+                with autocast(device_type="cuda" if torch.cuda.is_available() else "cpu"):
                     log_probs_1, log_probs_2, log_probs_3, log_probs_4, log_probs_5, length, out_data_1, out_data_2, out_data_3=model(video,video_len,True)
                     # log_probs_1：Transformer编码后，最低T/4时，语义级对齐
                     # log_probs_2：第二卷积之后，T/4，结构时序建模

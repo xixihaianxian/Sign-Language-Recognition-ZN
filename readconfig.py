@@ -26,7 +26,7 @@ def read_config():
     config_path="params.ini"
     if os.path.exists(config_path):
         cf=configparser.ConfigParser()
-        cf.read(config_path)
+        cf.read(config_path,encoding="utf-8")
         # 修改路径参数
         config_params["trainDataPath"]=cf.get("Path","trainDataPath")
         config_params["validDataPath"]=cf.get("Path","validDataPath")
