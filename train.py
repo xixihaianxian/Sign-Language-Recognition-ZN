@@ -159,9 +159,9 @@ def train(config_params:Dict[str,Any],is_train=True)->Tuple[int,List[int],List[i
         epoch=checkpoint["epoch"]
         last_epoch=epoch
         # 打印已加载模型的状态
-        logger.info(f"已加载预训练模型 epoch: {epoch}, best loss: {best_loss}, best loss epoch: {best_loss_epoch}, wer score: {best_wer_score}, best wer score epoch: {best_wer_score_epoch}")
+        logger.info(f"已加载预训练模型 epoch: {epoch}, best loss: {best_loss:.2f}, best loss epoch: {best_loss_epoch}, wer score: {best_wer_score:.2f}, best wer score epoch: {best_wer_score_epoch}")
     else:
-        logger.info(f"已加载预训练模型 epoch: {epoch}, best loss: {best_loss}, best loss epoch: {best_loss_epoch}, wer score: {best_wer_score}, best wer score epoch: {best_wer_score_epoch}")
+        logger.info(f"已加载预训练模型 epoch: {epoch}, best loss: {best_loss:.2f}, best loss epoch: {best_loss_epoch}, wer score: {best_wer_score:.2f}, best wer score epoch: {best_wer_score_epoch}")
     # 设置学习率削减规则
     scheduler=optim.lr_scheduler.MultiStepLR(
         optimizer=optimizer,
@@ -244,7 +244,7 @@ def train(config_params:Dict[str,Any],is_train=True)->Tuple[int,List[int],List[i
                     scaler.update()
                 loss_value.append(loss.item())
                 torch.cuda.empty_cache() # 释放 PyTorch 内部缓存的空闲显存(可能会降低性能)
-            logger.info(f"epoch: {epoch} train loss: {np.mean(loss_value)} learning rate: {optimizer.param_groups[0]['lr']}")
+            logger.info(f"epoch: {epoch} train loss: {np.mean(loss_value):.2f} learning rate: {optimizer.param_groups[0]['lr']}")
             # 收集train损失值
             train_losses.append(np.mean(loss_value))
             epoch+=1
@@ -318,8 +318,8 @@ def train(config_params:Dict[str,Any],is_train=True)->Tuple[int,List[int],List[i
                 # 保存每次epoch的模型
                 epoch_module_save_path=os.path.join(epoch_path,f"Epoch_{epoch}_Module.pth")
                 torch.save(module_choice,epoch_module_save_path)
-                logger.info(f"valid loss: {current_loss} wer score: {wer}.")
-                logger.info(f"best loss: {best_loss} best loss epoch: {best_loss_epoch} best wer score: {best_wer_score} best wer score epoch: {best_wer_score_epoch}.")
+                logger.info(f"valid loss: {current_loss:.2f} wer score: {wer:.2f}.")
+                logger.info(f"best loss: {best_loss:.2f} best loss epoch: {best_loss_epoch} best wer score: {best_wer_score:.2f} best wer score epoch: {best_wer_score_epoch}.")
                 # 保存val当前的损失
                 val_losses.append(current_loss)
                 # 保存val的wer score

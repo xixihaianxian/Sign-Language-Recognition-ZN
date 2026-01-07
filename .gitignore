@@ -12,3 +12,5 @@ data/
 resnet/resnet18.pth/
 resnet/resnet34.pth/
 resnet/
+module/
+example/
