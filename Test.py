@@ -13,21 +13,25 @@ from train import loss_function
 import numpy as np
 import decode
 from WER import wer_score
+import random
+from glob import glob
+import imageio
+import cv2
 
 # 获取配置文件
 config_params=readconfig.read_config()
 
 # 模型结构参数
-hidden_size=config_params["hiddenSize"]
+hidden_size=int(config_params["hiddenSize"])
 max_num_states=1
-num_workers=config_params["numWorkers"]
-pin_memory=config_params["pinMemory"]
+num_workers=int(config_params["numWorkers"])
+pin_memory=bool(config_params["pinMemory"])
 
 # 默认设备
 default_device=config_params["device"]
 
 # 学习率
-learning_rate=config_params["lr"]
+learning_rate=float(config_params["lr"])
 
 # 获取train和test上的数据转化
 def load_transform(is_train:bool=True):
@@ -95,11 +99,11 @@ def load_module(module_choice:str,word_number:int,data_set_name:str,device=None,
         module:best module
     """
     module:nn.Module = Net.ModuleNet(hidden_size=hidden_size, word_set_num=word_number * max_num_states + 1,
-                          module_choice=module_choice, data_set_name=data_set_name, is_flag=True,device=device if device is not None else default_device)
+                          module_choice=module_choice, data_set_name=data_set_name, is_flag=True,device=device if device is not None else default_device,module_dir="resnet")
     if not os.path.exists(module_path):
         logger.error(f"Not exists {module_path}, please check {module_path}!")
         exit(1)
-    module_dict:Dict[str,Any]=torch.load(module_path,map_location=default_device if device is None else device)
+    module_dict:Dict[str,Any]=torch.load(module_path,map_location=default_device if device is None else device,weights_only=False)
     module.load_state_dict(module_dict["module_state_dict"])
     return module
 
@@ -119,7 +123,7 @@ def get_data_loader(data_set_name:str,data_path:str,label_path,word2idx,is_train
     """
     transform=load_transform(is_train)
     class_name=data_set_name.replace("-","")
-    method=getattr(DataPreprocessing,class_name)
+    method=getattr(DataPreprocessing,f"{class_name}Dataset")
     test_data = method(image_dir_path=data_path, label_path=label_path, word2idx=word2idx,
                        data_set_name=data_set_name, is_train=is_train, transform=transform)
     test_loader = DataLoader(dataset=test_data, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers,
@@ -151,37 +155,93 @@ def test(idx2word:List[str],decoder,module:nn.Module,test_loader:DataLoader,devi
     # 将模型转化为测试模式
     module.eval()
     # 加载数据
-    for test_data in tqdm(test_loader):
-        test_vido=test_data["video"].to(device=device)
-        test_label:List[torch.Tensor]=test_data["label"]
-        test_video_length=test_data["video_length"]
-        info=test_data["info"]
-        test_target_out_data=[label.to(device=device) for label in test_label]
-        test_target_len=torch.tensor(list(map(len,test_target_out_data)))
-        test_target_data=test_target_out_data
-        test_target_out_data=torch.cat(test_target_out_data,dim=0).to(device=device)
-        batch_size=len(test_target_len)
-        log_probs_1, log_probs_2, log_probs_3, log_probs_4, log_probs_5, length, out_data_1, out_data_2, out_data_3 = module(test_vido, test_video_length, is_train=False)
-        log_probs_1=log_soft_max(log_probs_1)
-        if module_choice=="MSTNet":
-            loss_1=ctc_loss(log_probs_1,test_target_out_data,length,test_target_len)
-        else:
-            loss_1=ctc_loss(log_probs_1,test_target_out_data,length,test_target_len).mean()
-        loss=loss_1
-        if np.isnan(loss.item()) or np.isinf(loss.item()):
-            logger.warning("There is a problem with the loss value!")
-            continue
-        else:
-            loss_values.append(loss.item())
-        pred,test_target_data_ctc=decoder.decode(ctc_logits=log_probs_1,vid_lgt=length,batch_first=False,is_probability_distribution=False)
-        # 对于RWTH和RWTH-T数据集，我们这里不深入分讨论
-        if data_set_name=="CSL-Daily" or data_set_name=="CE-CSL":
-            wer=wer_score(prediction_result=[test_target_data_ctc],target_out_result=test_target_data,id2word=idx2word,batch_size=batch_size)
-            wer_score_sum+=wer
-    test_loss=np.mean(loss_values)
-    test_wer=wer_score_sum/len(test_loader)
-    logger.info(f"test loss is {test_loss}!")
-    logger.info(f"test wer score is {test_wer}!")
+    with torch.no_grad():
+        for test_data in tqdm(test_loader):
+            test_vido=test_data["video"].to(device=device)
+            test_label:List[torch.Tensor]=test_data["label"]
+            test_video_length=test_data["video_length"]
+            info=test_data["info"]
+            test_target_out_data=[label.to(device=device) for label in test_label]
+            test_target_len=torch.tensor(list(map(len,test_target_out_data)))
+            test_target_data=test_target_out_data
+            test_target_out_data=torch.cat(test_target_out_data,dim=0).to(device=device)
+            batch_size=len(test_target_len)
+            log_probs_1, log_probs_2, log_probs_3, log_probs_4, log_probs_5, length, out_data_1, out_data_2, out_data_3 = module(test_vido, test_video_length, is_train=False)
+            log_probs_1=log_soft_max(log_probs_1)
+            if module_choice=="MSTNet":
+                loss_1=ctc_loss(log_probs_1,test_target_out_data,length,test_target_len)
+            else:
+                loss_1=ctc_loss(log_probs_1,test_target_out_data,length,test_target_len).mean()
+            loss=loss_1
+            if np.isnan(loss.item()) or np.isinf(loss.item()):
+                logger.warning("There is a problem with the loss value!")
+                continue
+            else:
+                loss_values.append(loss.item())
+            pred,test_target_data_ctc=decoder.decode(ctc_logits=log_probs_1,vid_lgt=length,batch_first=False,is_probability_distribution=False)
+            # 对于RWTH和RWTH-T数据集，我们这里不深入分讨论
+            if data_set_name=="CSL-Daily" or data_set_name=="CE-CSL":
+                wer=wer_score(prediction_result=[test_target_data_ctc],target_out_result=test_target_data,id2word=idx2word,batch_size=batch_size)
+                wer_score_sum+=wer
+        test_loss=np.mean(loss_values)
+        test_wer=wer_score_sum/len(test_loader)
+        logger.info(f"test loss is {test_loss:.2f}!")
+        logger.info(f"test wer score is {test_wer:.2f}!")
+
+def translation(idx2word:List[str],module:nn.Module,decoder,video_path:str=None,device:str=None,data_set_name:str="CE-CSL",transform=None):
+    log_soft_max = nn.LogSoftmax(dim=-1)
+    sentence=list()
+    videos_path=os.path.join(data_set_name,"video","test")
+    translator_dir=glob(f"{videos_path}/*")
+    if device is None:
+        device=default_device
+    if video_path is None:
+        translator=random.choice(translator_dir)
+        video_path=random.choice(glob(f"{translator}/*"))
+    # 创建存放图片的文件夹
+    if not os.path.exists("example"):
+        os.makedirs("example")
+    video_file_name = os.path.splitext(os.path.basename(video_path))[0]
+    save_image_dir = os.path.join("example", video_file_name)
+    os.makedirs(save_image_dir, exist_ok=True)
+    video=imageio.get_reader(video_path) # 获取视频的信息
+    nframe=video.count_frames()
+    logger.info(f"The total number of frames in the test video is {nframe}.")
+    try:
+        for frame_number in range(nframe):
+            frame_image=video.get_data(frame_number)
+            frame_image=cv2.cvtColor(frame_image,code=cv2.COLOR_BGR2RGB)
+            frame_image=cv2.resize(frame_image,dsize=(255,255))
+            image_file_name=f"{frame_number:0>5}.jpg"
+            image_path=os.path.join(save_image_dir,image_file_name)
+            cv2.imencode(ext=".jpg", img=frame_image)[1].tofile(image_path)
+        logger.info(f"{os.path.basename(video_path)} video processing completed")
+    except Exception as error:
+        logger.error(f"{os.path.basename(video_path)} video processing failure")
+        raise Exception(f"{os.path.basename(video_path)} video processing failure")
+    image_path_list=glob(os.path.join(f"{save_image_dir}/*"))
+    image_number=len(image_path_list)
+    indices=np.linspace(start=0,stop=image_number-1,num=image_number,dtype=np.int64)
+    frames=[image_path_list[index] for index in indices]
+    image_seq = [cv2.resize(cv2.cvtColor(cv2.imread(image_path), code=cv2.COLOR_BGR2RGB), dsize=(256, 256)) for image_path in frames]
+    if transform is not None:
+        image_seq=transform(image_seq)
+    if isinstance(image_seq, list):
+        image_seq=np.array(image_seq)
+        image_seq=torch.tensor(image_seq,dtype=torch.float32)
+    image_seq = image_seq.to(dtype=torch.float32) / 127.5 - 1
+    image_seq_length=torch.tensor([len(image_seq)])
+    image_seq=image_seq.unsqueeze(0)
+    module=module.to(device=device)
+    module.eval()
+    with torch.no_grad():
+        image_seq=image_seq.to(device=device)
+        log_probs_1, log_probs_2, log_probs_3, log_probs_4, log_probs_5, length, out_data_1, out_data_2, out_data_3 = module(image_seq, image_seq_length, is_train=False)
+        log_probs_1 = log_soft_max(log_probs_1)
+        pred, target_data_ctc = decoder.decode(ctc_logits=log_probs_1, vid_lgt=length, batch_first=False, is_probability_distribution=False)
+        for target in target_data_ctc:
+            sentence.append(idx2word[target.item()])
+    print(f"The translation result is :{''.join(sentence)}")
 
 if __name__=="__main__":
     test_data_path, train_label_path, valid_label_path, test_label_path, module_choice, data_set_name = fetch_data_params()
@@ -194,3 +254,5 @@ if __name__=="__main__":
     test_loader=get_data_loader(data_set_name=data_set_name,data_path=test_data_path,label_path=test_label_path,word2idx=word2idx,is_train=False)
     # 测试
     test(idx2word=idx2word,decoder=decoder,module=module,test_loader=test_loader)
+    # 翻译
+    translation(idx2word, module, decoder,None, None, data_set_name, transform=load_transform(is_train=False))
