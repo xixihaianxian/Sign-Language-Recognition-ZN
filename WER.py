@@ -195,15 +195,17 @@ def wer_score(prediction_result:List[List[int]],target_out_result:List[List[int]
     return average_wer_score
 if __name__=="__main__":
     # 假设 idx2word
-    idx2word = {0: "<pad>", 1: "hello", 2: "world", 3: "my", 4: "name", 5: "is", 6: "chatgpt"}
+    # idx2word = {0: "<pad>", 1: "hello", 2: "world", 3: "my", 4: "name", 5: "is", 6: "chatgpt"}
+    idx2word=["<pad>","hello","world","my","name","is","chatgpt"]
     prediction_result = [
         [1, 2, 0, 0, 0],
         [3, 4, 5, 6, 0]
     ]
     target_out_result = [
-        [1, 2, 0, 0, 0],
-        [3, 4, 5, 0, 0]
+        [0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0]
     ]
+    prediction_result=torch.tensor(prediction_result)
     batch_size = 2
     wer=wer_score(prediction_result,target_out_result,idx2word,batch_size)
     print(wer)

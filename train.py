@@ -170,7 +170,7 @@ def train(config_params:Dict[str,Any],is_train=True)->Tuple[int,List[int],List[i
         last_epoch=last_epoch # 设置这个参数是为了契合模型续训练
     )
     # 解码参数
-    decoder=decode.Decode(gloss_dict=word2idx,num_classes=word_number+1,search_mode="beam")
+    decoder= decode.Decode(gloss_dict=word2idx, num_classes=word_number + 1, search_mode="beam")
     # 保存train的loss列表
     train_losses=list()
     # 保存val的loss列表
@@ -285,7 +285,8 @@ def train(config_params:Dict[str,Any],is_train=True)->Tuple[int,List[int],List[i
                         total_info.extend(info)
                         total_sent+=pred
                     elif data_set_name=="CSL-Daily" or data_set_name=="CE-CSL":
-                        wer=wer_score(prediction_result=[valid_target_data_ctc],target_out_result=valid_target_data,id2word=idx2word,batch_size=batch_size)
+                        # TODO prediction_result=[valid_target_data_ctc]->prediction_result=valid_target_data_ctc
+                        wer=wer_score(prediction_result=valid_target_data_ctc,target_out_result=valid_target_data,id2word=idx2word,batch_size=batch_size)
                         wer_score_sum+=wer
                 torch.cuda.empty_cache()
                 current_loss=np.mean(valid_loss_value)
@@ -304,6 +305,7 @@ def train(config_params:Dict[str,Any],is_train=True)->Tuple[int,List[int],List[i
                     torch.save(module_dict,best_module_path)
                     logger.info(f"Save best module!")
                 if best_loss>current_loss:
+                    module_dict=dict()
                     best_loss = current_loss
                     best_loss_epoch = epoch - 1
                     module_dict["module_state_dict"]=model.state_dict()
