@@ -17,6 +17,7 @@ import random
 from glob import glob
 import imageio
 import cv2
+import pandas as pd
 
 # 获取配置文件
 config_params=readconfig.read_config()
@@ -201,7 +202,17 @@ def translation(idx2word:List[str],module:nn.Module,decoder,video_path:str=None,
     # 创建存放图片的文件夹
     if not os.path.exists("example"):
         os.makedirs("example")
-    video_file_name = os.path.splitext(os.path.basename(video_path))[0]
+    video_file_name = os.path.splitext(os.path.basename(video_path))[0] # 抽取到的视频名称
+    # 获取真实的标签
+    video_dirname = os.path.dirname(video_path)
+    if data_set_name in video_dirname:
+        data_type = os.path.split(videos_path)[-1]
+        label_path = os.path.join(data_set_name, 'label', f"{data_type}.csv")
+        data=pd.read_csv(label_path)
+        real_result=data[data["Number"]==video_file_name]
+        real_label=real_result["Chinese Sentences"].item()
+    else:
+        real_label=None
     save_image_dir = os.path.join("example", video_file_name)
     os.makedirs(save_image_dir, exist_ok=True)
     video=imageio.get_reader(video_path) # 获取视频的信息
@@ -243,6 +254,8 @@ def translation(idx2word:List[str],module:nn.Module,decoder,video_path:str=None,
             for target in targets:
                 sentence.append(idx2word[target.item()])
             print(f"The translation result is :{''.join(sentence)}")
+    if real_label is not None:
+        print(f"The real translation result is :{real_label}")
 
 if __name__=="__main__":
     test_data_path, train_label_path, valid_label_path, test_label_path, module_choice, data_set_name = fetch_data_params()
@@ -250,7 +263,7 @@ if __name__=="__main__":
     # 构造解码器
     decoder= decode.Decode(gloss_dict=word2idx, num_classes=word_number + 1, search_mode="beam")
     # 模型
-    module=load_module(module_choice=module_choice,word_number=word_number,data_set_name=data_set_name)
+    module=load_module(module_choice=module_choice,word_number=word_number,data_set_name=data_set_name,module_path="./module/current.pth")
     # 数据生成器
     test_loader=get_data_loader(data_set_name=data_set_name,data_path=test_data_path,label_path=test_label_path,word2idx=word2idx,is_train=False)
     # 测试

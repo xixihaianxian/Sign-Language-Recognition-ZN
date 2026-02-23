@@ -319,7 +319,7 @@ def train(config_params:Dict[str,Any],is_train=True)->Tuple[int,List[int],List[i
                     logger.info(f"Save current module!")
                 # 保存每次epoch的模型
                 epoch_module_save_path=os.path.join(epoch_path,f"Epoch_{epoch}_Module.pth")
-                torch.save(module_choice,epoch_module_save_path)
+                torch.save(module_dict,epoch_module_save_path)
                 logger.info(f"valid loss: {current_loss:.2f} wer score: {wer:.2f}.")
                 logger.info(f"best loss: {best_loss:.2f} best loss epoch: {best_loss_epoch} best wer score: {best_wer_score:.2f} best wer score epoch: {best_wer_score_epoch}.")
                 # 保存val当前的损失
