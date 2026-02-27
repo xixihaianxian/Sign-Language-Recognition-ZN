@@ -202,8 +202,8 @@ if __name__=="__main__":
         [3, 4, 5, 6, 0]
     ]
     target_out_result = [
-        [0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0]
+        [1, 2, 0, 0, 0],
+        [3, 4, 5, 0, 0]
     ]
     prediction_result=torch.tensor(prediction_result)
     batch_size = 2

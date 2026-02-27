@@ -20,6 +20,7 @@ from torch.amp import GradScaler
 from tqdm import tqdm
 from WER import wer_score
 import Painting
+from torch.nn.utils import clip_grad_norm_
 
 # 创建模型存放目录
 if not os.path.exists("module"):
@@ -117,6 +118,7 @@ def train(config_params:Dict[str,Any],is_train=True)->Tuple[int,List[int],List[i
         VideoEnhancement.RandomCrop(size=224),
         VideoEnhancement.RandomHorizontalFlip(prob=0.5),
         VideoEnhancement.ToTensor(),
+        # transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         VideoEnhancement.TemporalRescale(temp_scaling=0.2)
     ])
     # 测试时的数据预处理操作
@@ -149,7 +151,8 @@ def train(config_params:Dict[str,Any],is_train=True)->Tuple[int,List[int],List[i
     epoch=0 # 当前完成的epoch
     last_epoch=-1 # 用于告诉学习率调度器目前已经完成了多少个epoch的训练
     if os.path.exists(current_module_path):
-        checkpoint=torch.load(f=current_module_path,map_location=torch.device("cpu"))
+        # 登录当前模型（可以理解为上一次训练最后一个epoch的模型）
+        checkpoint=torch.load(f=current_module_path,map_location=torch.device("cpu"),weights_only=False) # weights_only=False可以防止文件里面存在numpy是发生报错
         model.load_state_dict(checkpoint["module_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         best_loss=checkpoint["best_loss"]
@@ -165,7 +168,7 @@ def train(config_params:Dict[str,Any],is_train=True)->Tuple[int,List[int],List[i
     # 设置学习率削减规则
     scheduler=optim.lr_scheduler.MultiStepLR(
         optimizer=optimizer,
-        milestones=[35,45],
+        milestones=[90],
         gamma=0.2,
         last_epoch=last_epoch # 设置这个参数是为了契合模型续训练
     )
@@ -179,7 +182,7 @@ def train(config_params:Dict[str,Any],is_train=True)->Tuple[int,List[int],List[i
     wer_scores=list()
     # 训练
     if is_train:
-        epoch_number=55
+        epoch_number=100
         if last_epoch!=-1:
             epoch_number=epoch_number-last_epoch
         else:
@@ -196,52 +199,52 @@ def train(config_params:Dict[str,Any],is_train=True)->Tuple[int,List[int],List[i
                 target_data=[target.to(device=device) for target in label]
                 target_len=torch.tensor(list(map(len,target_data)))
                 target_data=torch.cat(target_data,dim=0).to(device=device)
-                with autocast(device_type="cuda" if torch.cuda.is_available() else "cpu"):
-                    log_probs_1, log_probs_2, log_probs_3, log_probs_4, log_probs_5, length, out_data_1, out_data_2, out_data_3=model(video,video_len,True)
-                    # log_probs_1：Transformer编码后，最低T/4时，语义级对齐
-                    # log_probs_2：第二卷积之后，T/4，结构时序建模
-                    # log_probs_3：第一组卷积之后，T/2，中间监督防止，梯度消失
-                    # log_probs_4：ResNet后线性映射，T，保留细节，辅助定位
-                    if module_choice=="MSTNet":
-                        log_probs_1=log_soft_max(log_probs_1)
-                        log_probs_2=log_soft_max(log_probs_2)
-                        log_probs_3=log_soft_max(log_probs_3)
-                        log_probs_4=log_soft_max(log_probs_4)
-                        loss_1=ctc_loss(log_probs_1,target_data,length,target_len)
-                        loss_2=ctc_loss(log_probs_2,target_data,length,target_len)
-                        loss_3=ctc_loss(log_probs_3,target_data,length*2,target_len)
-                        loss_4=ctc_loss(log_probs_4,target_data,length*4,target_len)
-                        loss:torch.Tensor=loss_1+loss_2+loss_3+loss_4
-                    elif module_choice=="VAC" or module_choice=="CorrNet" or module_choice=="MAM-FSD" or module_choice=="SEN" or module_choice=="TFNet":
-                        loss_3=25*kld(log_probs_2,log_probs_1,use_blank=False)
-                        log_probs_1=log_soft_max(log_probs_1)
-                        log_probs_2=log_soft_max(log_probs_2)
-                        loss_1=ctc_loss(log_probs_1,target_data,length,target_len).mean()
-                        loss_2 = ctc_loss(log_probs_2, target_data, length, target_len).mean()
-                        if module_choice=="MAM-FSD":
-                            loss_4 = mse_loss(out_data_1[0], out_data_1[1])
-                            loss_5 = mse_loss(out_data_2[0], out_data_2[1])
-                            loss_6 = mse_loss(out_data_3[0], out_data_3[1])
-                            loss:torch.Tensor = loss_1 + loss_2 + loss_3 + 5 * loss_4 + 1 * loss_5 + 70 * loss_6
-                        elif module_choice=="TFNet":
-                            loss_6 = 25 * kld(log_probs_4, log_probs_3, use_blank=False)
-                            log_probs_3 = log_soft_max(log_probs_3)
-                            log_probs_4 = log_soft_max(log_probs_4)
-                            loss_4 = ctc_loss(log_probs_3, target_data, length, target_len).mean()
-                            loss_5 = ctc_loss(log_probs_4, target_data, length, target_len).mean()
-                            log_probs_5 = log_soft_max(log_probs_5)
-                            loss_7 = ctc_loss(log_probs_5, target_data, length, target_len).mean()
-                            loss:torch.Tensor = loss_1 + loss_2 + loss_3 + loss_4 + loss_5 + loss_6 + loss_7
-                        else:
-                            loss:torch.Tensor = loss_1 + loss_2 + loss_3
-                    if np.isinf(loss.item()) or np.isnan(loss.item()):
-                        logger.error(f"loss is nan or inf!")
-                        # raise ValueError(f"loss is nan or inf!")
-                        continue
-                    optimizer.zero_grad()
-                    scaler.scale(loss).backward()
-                    scaler.step(optimizer)
-                    scaler.update()
+                log_probs_1, log_probs_2, log_probs_3, log_probs_4, log_probs_5, length, out_data_1, out_data_2, out_data_3=model(video,video_len,True)
+                # log_probs_1：Transformer编码后，最低T/4时，语义级对齐
+                # log_probs_2：第二卷积之后，T/4，结构时序建模
+                # log_probs_3：第一组卷积之后，T/2，中间监督防止，梯度消失
+                # log_probs_4：ResNet后线性映射，T，保留细节，辅助定位
+                if module_choice=="MSTNet":
+                    log_probs_1=log_soft_max(log_probs_1)
+                    log_probs_2=log_soft_max(log_probs_2)
+                    log_probs_3=log_soft_max(log_probs_3)
+                    log_probs_4=log_soft_max(log_probs_4)
+                    loss_1=ctc_loss(log_probs_1,target_data,length,target_len)
+                    loss_2=ctc_loss(log_probs_2,target_data,length,target_len)
+                    loss_3=ctc_loss(log_probs_3,target_data,length*2,target_len)
+                    loss_4=ctc_loss(log_probs_4,target_data,length*4,target_len)
+                    loss:torch.Tensor=loss_1+loss_2+loss_3+loss_4
+                elif module_choice=="VAC" or module_choice=="CorrNet" or module_choice=="MAM-FSD" or module_choice=="SEN" or module_choice=="TFNet":
+                    loss_3=25*kld(log_probs_2,log_probs_1,use_blank=False)
+                    log_probs_1=log_soft_max(log_probs_1)
+                    log_probs_2=log_soft_max(log_probs_2)
+                    loss_1=ctc_loss(log_probs_1,target_data,length,target_len).mean()
+                    loss_2 = ctc_loss(log_probs_2, target_data, length, target_len).mean()
+                    if module_choice=="MAM-FSD":
+                        loss_4 = mse_loss(out_data_1[0], out_data_1[1])
+                        loss_5 = mse_loss(out_data_2[0], out_data_2[1])
+                        loss_6 = mse_loss(out_data_3[0], out_data_3[1])
+                        loss:torch.Tensor = loss_1 + loss_2 + loss_3 + 5 * loss_4 + 1 * loss_5 + 70 * loss_6
+                    elif module_choice=="TFNet":
+                        loss_6 = 25 * kld(log_probs_4, log_probs_3, use_blank=False)
+                        log_probs_3 = log_soft_max(log_probs_3)
+                        log_probs_4 = log_soft_max(log_probs_4)
+                        loss_4 = ctc_loss(log_probs_3, target_data, length, target_len).mean()
+                        loss_5 = ctc_loss(log_probs_4, target_data, length, target_len).mean()
+                        log_probs_5 = log_soft_max(log_probs_5)
+                        loss_7 = ctc_loss(log_probs_5, target_data, length, target_len).mean()
+                        loss:torch.Tensor = loss_1 + loss_2 + loss_3 + loss_4 + loss_5 + loss_6 + loss_7
+                    else:
+                        loss:torch.Tensor = loss_1 + loss_2 + loss_3
+                if np.isinf(loss.item()) or np.isnan(loss.item()):
+                    logger.error(f"loss is nan or inf!")
+                    # raise ValueError(f"loss is nan or inf!")
+                    continue
+                optimizer.zero_grad()
+                loss.backward()
+                # 梯度裁剪,防止梯度爆炸
+                clip_grad_norm_(parameters=model.parameters(),max_norm=5.0)
+                optimizer.step()
                 loss_value.append(loss.item())
                 torch.cuda.empty_cache() # 释放 PyTorch 内部缓存的空闲显存(可能会降低性能)
             logger.info(f"epoch: {epoch} train loss: {np.mean(loss_value):.2f} learning rate: {optimizer.param_groups[0]['lr']}")
@@ -305,18 +308,19 @@ def train(config_params:Dict[str,Any],is_train=True)->Tuple[int,List[int],List[i
                     torch.save(module_dict,best_module_path)
                     logger.info(f"Save best module!")
                 if best_loss>current_loss:
-                    module_dict=dict()
                     best_loss = current_loss
                     best_loss_epoch = epoch - 1
-                    module_dict["module_state_dict"]=model.state_dict()
-                    module_dict["optimizer_state_dict"]=optimizer.state_dict()
-                    module_dict["best_loss"]=best_loss
-                    module_dict["best_loss_epoch"]=best_loss_epoch
-                    module_dict["best_wer_score"]=best_wer_score
-                    module_dict["best_wer_score_epoch"]=best_wer_score_epoch
-                    module_dict["epoch"]=epoch
-                    torch.save(module_dict,current_module_path)
-                    logger.info(f"Save current module!")
+                # 保留当前的模型
+                module_dict = dict()
+                module_dict["module_state_dict"]=model.state_dict()
+                module_dict["optimizer_state_dict"]=optimizer.state_dict()
+                module_dict["best_loss"]=best_loss
+                module_dict["best_loss_epoch"]=best_loss_epoch
+                module_dict["best_wer_score"]=best_wer_score
+                module_dict["best_wer_score_epoch"]=best_wer_score_epoch
+                module_dict["epoch"]=epoch
+                torch.save(module_dict,current_module_path)
+                logger.info(f"Save current module!")
                 # 保存每次epoch的模型
                 epoch_module_save_path=os.path.join(epoch_path,f"Epoch_{epoch}_Module.pth")
                 torch.save(module_dict,epoch_module_save_path)

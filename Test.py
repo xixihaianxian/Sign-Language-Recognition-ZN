@@ -206,7 +206,10 @@ def translation(idx2word:List[str],module:nn.Module,decoder,video_path:str=None,
     # 获取真实的标签
     video_dirname = os.path.dirname(video_path)
     if data_set_name in video_dirname:
-        data_type = os.path.split(videos_path)[-1]
+        if video_path is None:
+            data_type = os.path.split(videos_path)[-1]
+        else:
+            data_type=video_file_name.split("-")[0]
         label_path = os.path.join(data_set_name, 'label', f"{data_type}.csv")
         data=pd.read_csv(label_path)
         real_result=data[data["Number"]==video_file_name]
@@ -249,11 +252,24 @@ def translation(idx2word:List[str],module:nn.Module,decoder,video_path:str=None,
         image_seq=image_seq.to(device=device)
         log_probs_1, log_probs_2, log_probs_3, log_probs_4, log_probs_5, length, out_data_1, out_data_2, out_data_3 = module(image_seq, image_seq_length, is_train=False)
         log_probs_1 = log_soft_max(log_probs_1)
-        pred, target_data_ctc = decoder.decode(ctc_logits=log_probs_1, vid_lgt=length, batch_first=False, is_probability_distribution=False)
-        for targets in target_data_ctc:
-            for target in targets:
-                sentence.append(idx2word[target.item()])
-            print(f"The translation result is :{''.join(sentence)}")
+        if decoder.search_mode=="beam":
+            pred, target_data_ctc = decoder.decode(ctc_logits=log_probs_1, vid_lgt=length, batch_first=False, is_probability_distribution=False)
+        else:
+            pred = decoder.decode(ctc_logits=log_probs_1, vid_lgt=length, batch_first=False)
+            sentences = [list(zip(*result))[0] for result in pred]
+        if decoder.search_mode=="beam":
+            for targets in target_data_ctc:
+                for target in targets:
+                    if isinstance(target,torch.Tensor):
+                        sentence.append(idx2word[target.item()])
+                    elif isinstance(target,int):
+                        sentence.append(idx2word[target])
+                    else:
+                        logger.error(f"target type is {type(target)}")
+                print(f"The translation result is :{''.join(sentence)}")
+        else:
+            for sentence in sentences:
+                print(f"The translation result is :{''.join(sentence)}")
     if real_label is not None:
         print(f"The real translation result is :{real_label}")
 
@@ -263,10 +279,10 @@ if __name__=="__main__":
     # 构造解码器
     decoder= decode.Decode(gloss_dict=word2idx, num_classes=word_number + 1, search_mode="beam")
     # 模型
-    module=load_module(module_choice=module_choice,word_number=word_number,data_set_name=data_set_name,module_path="./module/current.pth")
+    module=load_module(module_choice=module_choice, word_number=word_number, data_set_name=data_set_name, module_path="module/current.pth")
     # 数据生成器
     test_loader=get_data_loader(data_set_name=data_set_name,data_path=test_data_path,label_path=test_label_path,word2idx=word2idx,is_train=False)
     # 测试
     # test(idx2word=idx2word,decoder=decoder,module=module,test_loader=test_loader)
     # 翻译
-    translation(idx2word, module, decoder,None, None, data_set_name, transform=load_transform(is_train=False))
+    translation(idx2word, module, decoder,video_path="./CE-CSL/video/train/F/train-02535.mp4", device=None, data_set_name=data_set_name, transform=load_transform(is_train=False))

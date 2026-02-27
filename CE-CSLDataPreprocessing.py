@@ -6,6 +6,29 @@ import random
 import numpy as np
 from loguru import logger
 import argparse
+import shutil
+from pathlib import Path
+
+# 判断目录是否为空
+def isempty(dir_path:str)->bool:
+    r"""
+    :param dir_path:目录路径
+    :return: bool
+    """
+    # 如果目录不存在
+    if not os.path.exists(dir_path):
+        logger.warning(f"{dir_path} is not exists!")
+        return True
+    # 判断是不是目录
+    if os.path.isdir(dir_path):
+        if len(os.listdir(dir_path)): # 如果目录不为空
+            return False
+        else:
+            return True
+    # 如果目标不是目录报错
+    else:
+        logger.error(f"{dir_path} is not a directory!")
+        raise TypeError(f"{dir_path} is not a directory!")
 
 # 设置随机种子
 def set_seed(seed):
@@ -20,6 +43,15 @@ def data_preprocessing(origin_data_dir:str,save_dir:str):
     origin_data_dir: data origin path
     save_dir: save data path
     """
+    # 清空存放数据的的目录
+    if not isempty(save_dir):
+        save_dir=Path(save_dir)
+        for children_dir in save_dir.iterdir():
+            if children_dir.is_dir():
+                shutil.rmtree(children_dir)
+            else:
+                children_dir.unlink()
+        logger.info(f"{save_dir} has been cleared!")
     # 创建存放数据的目录
     os.path.exists(save_dir) or os.makedirs(save_dir)
     logger.info(f"The {save_dir} directory has been created!")

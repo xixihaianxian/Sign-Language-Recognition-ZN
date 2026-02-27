@@ -14,6 +14,7 @@ from collections import defaultdict
 import math
 from torch import nn
 from torch.nn import functional as F
+from torchvision import transforms
 
 # 判断文件状态
 def check_param_status(**kwargs):
@@ -193,6 +194,7 @@ class BaseSignLanguageDataset(data.Dataset):
         self.transform=transform # 是否对图像进行增强
         self.samples=list() # 定义sample列表
         self.load_data(image_dir_path=self.image_dir_path,label_path=self.label_path)
+        self.normalize=transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     # 登录数据
     def load_data(self,image_dir_path,label_path):
         logger.error(f"The load data method is not defined.") # 日志：load data方法没有定义
@@ -232,7 +234,9 @@ class BaseSignLanguageDataset(data.Dataset):
         # 对图片进行图像增强
         if self.transform is not None:
             image_seq=self.transform(image_seq)
-        image_seq=image_seq.to(dtype=torch.float32)/127.5 - 1
+        # image_seq=image_seq.to(dtype=torch.float32)/127.5 - 1
+        image_seq = image_seq.to(dtype=torch.float32) / 255.0 # 归一化操作
+        image_seq=self.normalize(image_seq)
         return image_seq
     def __getitem__(self,item):
         image_seq_path,label=self.samples[item]
@@ -462,4 +466,4 @@ class SeqKD(nn.Module):
         
 if __name__=="__main__":
     word2idx,word_number,idx2word=word2id()
-    print(word2idx)
+    print(word_number)

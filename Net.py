@@ -103,7 +103,7 @@ class ModuleNet(nn.Module):
             self.conv1d = Module.TemporalConv(input_size=512, hidden_size=hidden_size, convolution_type=2)
             self.temporal_model = BiLSTMLayer(rnn_type='LSTM', embedding_size=hidden_size, hidden_size=hidden_size, num_layers=2, bidirectional=True)
             self.classifier = Module.NormLinear(hidden_size, self.out_dim) # 分类头
-            self.classifier1 = self.classifier
+            self.classifier1 = Module.NormLinear(hidden_size, self.out_dim)
         elif "CorrNet" == self.module_choice:
             hidden_size = hidden_size
             self.feature_extraction = Module.resnet18corr()
@@ -288,12 +288,28 @@ class ModuleNet(nn.Module):
             log_probs_5 = log_probs_1
         # 选择模型VAC
         elif "VAC" == self.module_choice:
-            inputs = seq_data.reshape(batch_size * temp, channels, height, width) # input(batch_size*temp, channels, height, width)
-            # 当len_x每一个length不相等的时候可能会出现bug
-            x = torch.cat([inputs[len_x[0] * idx:len_x[0] * idx + length] for idx, length in enumerate(len_x)]) # x(batch_size*temp, channels, height, width)
-            x = self.feature_extraction(x) # x(batch_size*temp, 512)
-            frame_wise = torch.cat([self.pad(x[sum(len_x[:idx]):sum(len_x[:idx + 1])], len_x[0]) for idx, length in enumerate(len_x)])
-            frame_wise = frame_wise.reshape(batch_size, temp, -1).transpose(1, 2) # frame_wise(batch_size, 512, temp)
+            batch_size, temp, channels, height, width = seq_data.shape
+            # 1. 提取有效帧
+            valid_frames = []
+            for idx, length in enumerate(len_x):
+                l = int(length.item()) if isinstance(length, torch.Tensor) else int(length)
+                valid_frames.append(seq_data[idx, :l])
+            x = torch.cat(valid_frames, dim=0)  # (N, C, H, W)
+            x = self.feature_extraction(x)  # (N, 512)
+            frame_wise_list = []
+            current_idx = 0
+            for idx, length in enumerate(len_x):
+                l = int(length.item()) if isinstance(length, torch.Tensor) else int(length)
+                frame_wise_list.append(x[current_idx: current_idx + l])
+                current_idx += l
+            # 输出形状: (Batch, Temp_var, 512)
+            frame_wise = nn.utils.rnn.pad_sequence(frame_wise_list, batch_first=True)
+            # 对齐原始的时间步长 (补齐右侧缺失的0)
+            if frame_wise.size(1) < temp:
+                pad_len = temp - frame_wise.size(1)
+                pad = torch.zeros(batch_size, pad_len, x.size(-1), device=x.device)
+                frame_wise = torch.cat([frame_wise, pad], dim=1)
+            frame_wise = frame_wise.transpose(1, 2)  # (Batch, 512, Temp)
             conv1d_outputs = self.conv1d(frame_wise, len_x)
             x = conv1d_outputs['visual_feat']
             length = conv1d_outputs['feat_len']
