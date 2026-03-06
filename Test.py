@@ -18,6 +18,7 @@ from glob import glob
 import imageio
 import cv2
 import pandas as pd
+from torchvision import transforms
 
 # 获取配置文件
 config_params=readconfig.read_config()
@@ -99,6 +100,7 @@ def load_module(module_choice:str,word_number:int,data_set_name:str,device=None,
     :return:
         module:best module
     """
+    logger.info(f"Using the {module_choice} model!")
     module:nn.Module = Net.ModuleNet(hidden_size=hidden_size, word_set_num=word_number * max_num_states + 1,
                           module_choice=module_choice, data_set_name=data_set_name, is_flag=True,device=device if device is not None else default_device,module_dir="resnet")
     if not os.path.exists(module_path):
@@ -192,7 +194,7 @@ def test(idx2word:List[str],decoder,module:nn.Module,test_loader:DataLoader,devi
 def translation(idx2word:List[str],module:nn.Module,decoder,video_path:str=None,device:str=None,data_set_name:str="CE-CSL",transform=None):
     log_soft_max = nn.LogSoftmax(dim=-1)
     sentence=list()
-    videos_path=os.path.join(data_set_name,"video","test")
+    videos_path=os.path.join(data_set_name,"video","train")
     translator_dir=glob(f"{videos_path}/*")
     if device is None:
         device=default_device
@@ -243,8 +245,11 @@ def translation(idx2word:List[str],module:nn.Module,decoder,video_path:str=None,
     if isinstance(image_seq, list):
         image_seq=np.array(image_seq)
         image_seq=torch.tensor(image_seq,dtype=torch.float32)
-    image_seq = image_seq.to(dtype=torch.float32) / 127.5 - 1
-    image_seq_length=torch.tensor([len(image_seq)])
+    # 图片的标准化
+    image_seq=image_seq.to(dtype=torch.float32)/255.0
+    normalize=transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    image_seq=normalize(image_seq)
+    image_seq_length=[torch.tensor([len(image_seq)])]
     image_seq=image_seq.unsqueeze(0)
     module=module.to(device=device)
     module.eval()
@@ -279,10 +284,10 @@ if __name__=="__main__":
     # 构造解码器
     decoder= decode.Decode(gloss_dict=word2idx, num_classes=word_number + 1, search_mode="beam")
     # 模型
-    module=load_module(module_choice=module_choice, word_number=word_number, data_set_name=data_set_name, module_path="module/current.pth")
+    module=load_module(module_choice=module_choice, word_number=word_number, data_set_name=data_set_name, module_path="module/MSTNet-Current.pth")
     # 数据生成器
     test_loader=get_data_loader(data_set_name=data_set_name,data_path=test_data_path,label_path=test_label_path,word2idx=word2idx,is_train=False)
     # 测试
     # test(idx2word=idx2word,decoder=decoder,module=module,test_loader=test_loader)
     # 翻译
-    translation(idx2word, module, decoder,video_path="./CE-CSL/video/train/F/train-02535.mp4", device=None, data_set_name=data_set_name, transform=load_transform(is_train=False))
+    translation(idx2word, module, decoder,video_path=None, device=None, data_set_name=data_set_name, transform=load_transform(is_train=False))

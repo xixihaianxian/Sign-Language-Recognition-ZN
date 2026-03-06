@@ -8,7 +8,7 @@ from loguru import logger
 
 # 根据序列长度生padding mask，为避免运算时模型注意到padding
 def key_padding_mask(sequence_len)->torch.Tensor:
-    mask=torch.zeros(size=(len(sequence_len),max(sequence_len)),dtype=torch.float32)
+    mask=torch.zeros(size=(len(sequence_len),max(sequence_len)),dtype=torch.bool)
     for index,length in enumerate(sequence_len):
         mask[index,length:]=True
     return mask
@@ -178,13 +178,13 @@ class TransformerEncoder(nn.Module):
                     relative_position_encoding_k=relative_position_encoding_k,
                 )
             )
-    def forward(self,x:torch.Tensor):
-        x_length=list(map(len,x))
-        x_mask=key_padding_mask(x_length).to(x.device)
-        x_mask=x_mask.unsqueeze(dim=1)
+    def forward(self, x: torch.Tensor, x_length: torch.Tensor):
+        # 根据真实长度生成 Mask，避开空白帧
+        x_mask = key_padding_mask(x_length.tolist()).to(x.device)
+        x_mask = x_mask.unsqueeze(dim=1)
         for layer in self.layers:
-            x=layer(x,x_mask)
-        y=self.norm(x)
+            x = layer(x, x_mask)
+        y = self.norm(x)
         return y
 if __name__=="__main__":
     x = torch.tensor([

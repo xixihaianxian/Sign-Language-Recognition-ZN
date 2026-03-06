@@ -185,34 +185,24 @@ class ModuleNet(nn.Module):
         batch_size, temp, channels, height, width = seq_data.shape
         # 选择MSTNet模型，注意这不是一个经典的MSTNet，可以理解为Multi-Stream Temporal Network（动作识别）
         if "MSTNet" == self.module_choice:
-            inputs = seq_data.reshape(batch_size * temp, channels, height, width)
-            # 划分数据集
-            x = torch.cat([inputs[len_x[0] * index: len_x[0] * index + length] for index, length in enumerate(len_x)])
-            n = len(x)
-            indices = np.arange(n)
-            np.random.shuffle(indices)
-            train_index = indices[: int(n * 0.5)]
-            train_index = sorted(train_index)
-            test_index = indices[int(n * 0.5):]
-            test_index = sorted(test_index)
-            train_data = x[train_index, :, :, :] # shape(batch_size*temp, channels, height, width)
-            test_data = x[test_index, :, :, :]
-            # 训练集特征提取
-            train_data = self.feature_extraction(train_data)
-            # 测试集特征提取
-            with torch.no_grad():
-                test_data = self.feature_extraction(test_data)
-            shape = train_data.shape
-            # x1转移到cuda上
-            x1 = torch.zeros(size=((shape[0] // 1) * 2, shape[1])).to(device=self.device) # shape(batch_size*temp,feature_dim)
-            for i in range(len(train_index)):
-                x1[train_index[i], :] = train_data[i, :]
-            for i in range(len(test_index)):
-                x1[test_index[i], :] = test_data[i, :]
-            # 计算之后x1上面包含了所有的经过特征提取之后的train_data和test_data，同时排列的顺序也是按照x的顺序来排列
-            # 序列长度标准化，保持在len_x[0]
-            frame_wise = torch.cat([self.pad(x1[sum(len_x[:idx]):sum(len_x[:idx + 1])], len_x[0]) for idx, length in enumerate(len_x)])
-            # 修改frame_wise的形状
+            valid_frames = []
+            for idx, length in enumerate(len_x):
+                l = int(length.item()) if isinstance(length, torch.Tensor) else int(length)
+                valid_frames.append(seq_data[idx, :l])
+            x = torch.cat(valid_frames, dim=0)  # (N, C, H, W)
+            x = self.feature_extraction(x)  # (N, 512)
+            frame_wise_list = []
+            current_idx = 0
+            for idx, length in enumerate(len_x):
+                l = int(length.item()) if isinstance(length, torch.Tensor) else int(length)
+                frame_wise_list.append(x[current_idx: current_idx + l])
+                current_idx += l
+            frame_wise = nn.utils.rnn.pad_sequence(frame_wise_list, batch_first=True)
+            # 补齐右侧缺失的 0 帧
+            if frame_wise.size(1) < temp:
+                pad_len = temp - frame_wise.size(1)
+                pad = torch.zeros(batch_size, pad_len, x.size(-1), device=x.device)
+                frame_wise = torch.cat([frame_wise, pad], dim=1)
             frame_wise = frame_wise.reshape(batch_size, temp, -1)
             # 1
             frame_wise = self.linear1(frame_wise).transpose(1, 2) # 512->hidden_size
@@ -274,7 +264,8 @@ class ModuleNet(nn.Module):
                 length = (torch.cat(len_x, dim=0) // 4) - 6
                 x = input_data.permute(0, 2, 1)
                 x = x[:, 3:-3, :]
-            outputs = self.temporal_model(x)
+            length_cpu = length.cpu() if isinstance(length, torch.Tensor) else length
+            outputs = self.temporal_model(x, length_cpu)
             outputs = outputs.permute(1, 0, 2)
             log_probs_1 = self.classifier1(outputs)
             outputs = x.permute(1, 0, 2)
